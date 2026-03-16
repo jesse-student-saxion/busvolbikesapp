@@ -1,0 +1,20 @@
+{
+  "name": "busvolbikes-website",
+  "version": "1.0.0",
+  "description": "Bus vol Bikes website met Fietsenwijk.nl XML integratie",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "scrape": "node scraper.js",
+    "build": "node scraper.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "xml2js": "^0.6.2"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

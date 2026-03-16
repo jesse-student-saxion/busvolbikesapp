@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ons Aanbod - Bus vol Bikes</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="voorraad.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-container">
+            <a href="index.html#" class="logo">
+                <img src="images/logo.svg" alt="Bus vol Bikes" class="logo-img">
+            </a>
+            <ul class="nav-menu">
+                <li><a href="index.html#over-ons" class="nav-link">Over ons</a></li>
+                <li><a href="voorraad.html" class="nav-link">Aanbod</a></li>
+                <li><a href="index.html#reparatie" class="nav-link">Reparatie</a></li>
+                <li><a href="index.html#contact" class="nav-link">Contact</a></li>
+            </ul>
+            <div class="hamburger">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+            </div>
+        </div>
+    </nav>
+
+    <section class="section voorraad-page">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Ons aanbod</span>
+                <h1 class="section-title">Actuele <span class="highlight">voorraad</span></h1>
+                <p class="section-subtitle">Bekijk ons complete aanbod e-bikes. Alle fietsen zijn rijklaar geleverd met 6 maanden garantie.</p>
+            </div>
+
+            <div class="voorraad-filter">
+                <button class="filter-btn active" data-filter="all">Alle fietsen</button>
+                <button class="filter-btn" data-filter="gebruikt">Gebruikt</button>
+                <button class="filter-btn" data-filter="nieuw">Nieuw</button>
+            </div>
+
+            <div class="voorraad-stats">
+                <span id="fietsen-count">Laden...</span>
+                <span class="update-time" id="update-time"></span>
+            </div>
+
+            <div id="fietsen-grid" class="fietsen-grid">
+                <div class="loading">Fietsen laden...</div>
+            </div>
+
+            <div class="cta-box">
+                <div class="cta-content">
+                    <h3>Meer fietsen beschikbaar</h3>
+                    <p>Ons aanbod wisselt dagelijks. Neem contact op voor de nieuwste fietsen of kom langs voor een proefrit.</p>
+                </div>
+                <a href="index.html#contact" class="btn btn-primary">Contact opnemen</a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="footer-logo">🚲 Bus vol Bikes</span>
+                    <p>Van fietsenzaak naar jou!</p>
+                </div>
+                <div class="footer-links">
+                    <a href="index.html#over-ons">Over ons</a>
+                    <a href="voorraad.html">Aanbod</a>
+                    <a href="index.html#reparatie">Reparatie</a>
+                    <a href="index.html#contact">Contact</a>
+                </div>
+            </div>
+            <p class="footer-copy">© 2026 Bus vol Bikes. Alle rechten voorbehouden.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const hamburger = document.querySelector('.hamburger');
+        const navMenu = document.querySelector('.nav-menu');
+        
+        hamburger.addEventListener('click', () => {
+            hamburger.classList.toggle('active');
+            navMenu.classList.toggle('active');
+        });
+        
+        document.querySelectorAll('.nav-link').forEach(n => n.addEventListener('click', () => {
+            hamburger.classList.remove('active');
+            navMenu.classList.remove('active');
+        }));
+    </script>
+    <script src="voorraad.js"></script>
+</body>
+</html>
