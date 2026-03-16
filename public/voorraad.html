@@ -7,32 +7,35 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="wrap">
+  <div class="wrap">
     <section class="hero">
       <div class="hero-card">
-        <h1>Onze actuele voorraad</h1>
-        <p>Bekijk gebruikte en nieuwe e-bikes in een overzichtelijke, moderne layout. De prijzen worden zoveel mogelijk uit de detailpagina’s gehaald als ze niet direct in de lijst staan.</p>
+        <span class="eyebrow">Voorraad</span>
+        <h1>Onze actuele fietsen.</h1>
+        <p>Nieuwe en gebruikte fietsen, automatisch geladen. Afbeeldingen gebruiken nu direct het stabiele detail-image patroon van Fietsenwijk en worden overal even groot weergegeven.</p>
       </div>
       <aside class="panel">
         <div class="links">
-          <a href="/">Terug</a>
           <a href="/api/fietsen">JSON API</a>
           <a href="/api/fietsen.xml">XML feed</a>
+          <a href="/api/health">Health check</a>
         </div>
       </aside>
     </section>
 
-    <section class="toolbar">
+    <div class="toolbar">
       <div class="filters">
-        <button class="filter active" data-type="all">Alle fietsen</button>
+        <button class="filter active" data-type="all">Alles</button>
         <button class="filter" data-type="used">Gebruikt</button>
         <button class="filter" data-type="new">Nieuw</button>
       </div>
       <div id="status">Fietsen laden...</div>
-    </section>
+    </div>
 
-    <section class="grid" id="grid"></section>
-  </main>
+    <div id="grid" class="grid">
+      <div class="empty">Fietsen laden...</div>
+    </div>
+  </div>
   <script src="/voorraad.js"></script>
 </body>
 </html>
