@@ -1,20 +1,18 @@
 {
-  "name": "busvolbikes-website",
+  "name": "busvolbikes-app",
   "version": "1.0.0",
-  "description": "Bus vol Bikes website met Fietsenwijk.nl XML integratie",
+  "description": "Bus vol Bikes voorraad app",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "scrape": "node scraper.js",
-    "build": "node scraper.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "xml2js": "^0.6.2"
+    "start": "node server.js"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
   }
 }
