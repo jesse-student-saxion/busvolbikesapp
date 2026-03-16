@@ -7,30 +7,15 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="container voorraad-page">
-    <div class="page-head">
-      <div>
-        <p class="eyebrow">Actuele voorraad</p>
-        <h1>Fietsen</h1>
-      </div>
-      <a class="button button-secondary" href="/">Terug</a>
+  <main class="container">
+    <h1>Actuele voorraad</h1>
+    <div class="filters">
+      <button class="filter active" data-type="all">Alle fietsen</button>
+      <button class="filter" data-type="used">Gebruikt</button>
+      <button class="filter" data-type="new">Nieuw</button>
     </div>
-
-    <div class="toolbar">
-      <div class="stats">
-        <span id="countLabel">Fietsen laden...</span>
-        <span id="updateLabel"></span>
-      </div>
-      <div class="filters">
-        <button class="filter active" data-filter="all">Alle fietsen</button>
-        <button class="filter" data-filter="used">Gebruikt</button>
-        <button class="filter" data-filter="new">Nieuw</button>
-      </div>
-    </div>
-
-    <div id="grid" class="grid">
-      <div class="empty">🚲 Fietsen worden geladen...</div>
-    </div>
+    <div id="status">Fietsen laden...</div>
+    <div id="grid" class="grid"></div>
   </main>
   <script src="/voorraad.js"></script>
 </body>

@@ -1,92 +1,38 @@
-(() => {
-  const API_URL = '/api/fietsen';
-  const grid = document.getElementById('grid');
-  const countLabel = document.getElementById('countLabel');
-  const updateLabel = document.getElementById('updateLabel');
-  const filterButtons = [...document.querySelectorAll('.filter')];
+(function(){
+  var state = 'all';
+  var status = document.getElementById('status');
+  var grid = document.getElementById('grid');
+  var buttons = document.querySelectorAll('.filter');
 
-  let fietsen = [];
-  let currentFilter = 'all';
-
-  function escapeHtml(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function render() {
-    const items = currentFilter === 'all'
-      ? fietsen
-      : fietsen.filter((fiets) => fiets.state === currentFilter);
-
-    countLabel.textContent = `${items.length} fietsen zichtbaar`;
-
-    if (!items.length) {
-      grid.innerHTML = '<div class="empty">Geen fietsen gevonden.</div>';
-      return;
-    }
-
-    grid.innerHTML = items.map((fiets) => {
-      const image = escapeHtml(fiets.image || '');
-      const title = escapeHtml(fiets.title || 'Onbekende fiets');
-      const price = escapeHtml(fiets.price || 'Prijs op aanvraag');
-      const url = escapeHtml(fiets.url || '#');
-      const badge = escapeHtml(fiets.stateLabel || 'Fiets');
-      const specs = Array.isArray(fiets.specs) ? fiets.specs.slice(0, 4) : [];
-      const badgeClass = fiets.state === 'new' ? 'badge new' : 'badge';
-
-      return `
-        <article class="bike-card">
-          <div class="bike-image">
-            ${image ? `<img src="${image}" alt="${title}" loading="lazy" onerror="this.style.display='none'">` : ''}
-            <span class="${badgeClass}">${badge}</span>
-          </div>
-          <div class="bike-content">
-            <h2 class="bike-title">${title}</h2>
-            <div class="specs">
-              ${specs.map((spec) => `<span class="spec">${escapeHtml(spec)}</span>`).join('')}
-            </div>
-            <div class="bike-footer">
-              <div class="price">${price}</div>
-              <a class="button" href="${url}" target="_blank" rel="noopener noreferrer">Bekijken</a>
-            </div>
-          </div>
-        </article>
-      `;
+  function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+  function render(items){
+    if(!items.length){grid.innerHTML='';status.textContent='Geen fietsen gevonden';return;}
+    status.textContent = items.length + ' fietsen gevonden';
+    grid.innerHTML = items.map(function(f){
+      return '<article class="card">'
+        + (f.image ? '<img src="'+esc(f.image)+'" alt="'+esc(f.title)+'">' : '')
+        + '<div class="badge '+esc(f.state)+'">'+esc(f.stateLabel)+'</div>'
+        + '<h3>'+esc(f.title)+'</h3>'
+        + '<div class="meta">'+esc((Array.isArray(f.specs)?f.specs:[]).join(' • '))+'</div>'
+        + '<div class="price">'+esc(f.price || 'Prijs op aanvraag')+'</div>'
+        + '<a class="link" href="'+esc(f.url || '#')+'">Bekijken</a>'
+        + '</article>';
     }).join('');
   }
-
-  fetch(API_URL, { headers: { Accept: 'application/json' } })
-    .then((response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    })
-    .then((data) => {
-      fietsen = Array.isArray(data.fietsen) ? data.fietsen : [];
-      countLabel.textContent = `${fietsen.length} fietsen geladen`;
-      if (data.laatsteUpdate) {
-        const d = new Date(data.laatsteUpdate);
-        if (!Number.isNaN(d.getTime())) {
-          updateLabel.textContent = `Laatste update: ${d.toLocaleString('nl-NL')}`;
-        }
-      }
-      render();
-    })
-    .catch((error) => {
-      countLabel.textContent = 'Fout bij laden';
-      updateLabel.textContent = error.message;
-      grid.innerHTML = '<div class="empty">❌ Fietsen konden niet worden geladen.</div>';
+  function load(){
+    status.textContent='Fietsen laden...';
+    fetch('/api/fietsen?type='+encodeURIComponent(state))
+      .then(function(r){if(!r.ok) throw new Error('HTTP '+r.status); return r.json();})
+      .then(function(data){render(Array.isArray(data.fietsen)?data.fietsen:[]);})
+      .catch(function(e){status.textContent='Fietsen konden niet worden geladen'; console.error(e);});
+  }
+  for(var i=0;i<buttons.length;i++){
+    buttons[i].addEventListener('click', function(){
+      for(var j=0;j<buttons.length;j++) buttons[j].classList.remove('active');
+      this.classList.add('active');
+      state = this.getAttribute('data-type') || 'all';
+      load();
     });
-
-  filterButtons.forEach((button) => {
-    button.addEventListener('click', () => {
-      filterButtons.forEach((btn) => btn.classList.remove('active'));
-      button.classList.add('active');
-      currentFilter = button.dataset.filter;
-      render();
-    });
-  });
+  }
+  load();
 })();
