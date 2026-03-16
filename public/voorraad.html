@@ -3,35 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bus vol Bikes voorraad</title>
+  <title>Voorraad | Bus vol Bikes</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="wrap">
-    <section class="hero">
-      <div class="hero-card">
+  <main class="page">
+    <section class="topbar">
+      <div>
+        <span class="eyebrow">Bus vol Bikes</span>
         <h1>Onze actuele voorraad</h1>
-        <p>Bekijk gebruikte en nieuwe e-bikes in een overzichtelijke, moderne layout. De prijzen worden zoveel mogelijk uit de detailpagina’s gehaald als ze niet direct in de lijst staan.</p>
       </div>
-      <aside class="panel">
-        <div class="links">
-          <a href="/">Terug</a>
-          <a href="/api/fietsen">JSON API</a>
-          <a href="/api/fietsen.xml">XML feed</a>
-        </div>
-      </aside>
+      <div class="stats">
+        <div id="countBox">Laden...</div>
+        <div id="updateBox"></div>
+      </div>
     </section>
 
-    <section class="toolbar">
-      <div class="filters">
-        <button class="filter active" data-type="all">Alle fietsen</button>
-        <button class="filter" data-type="used">Gebruikt</button>
-        <button class="filter" data-type="new">Nieuw</button>
-      </div>
-      <div id="status">Fietsen laden...</div>
+    <section class="filters">
+      <button class="filter active" data-type="all">Alles</button>
+      <button class="filter" data-type="used">Gebruikt</button>
+      <button class="filter" data-type="new">Nieuw</button>
     </section>
 
-    <section class="grid" id="grid"></section>
+    <section id="grid" class="grid-state loading">Fietsen laden...</section>
   </main>
   <script src="/voorraad.js"></script>
 </body>
