@@ -1,7 +1,7 @@
 {
-  "name": "busvolbikes-app",
-  "version": "4.0.0",
-  "description": "Bus vol Bikes voorraad app met HTML bron, JSON/XML API en WordPress embed",
+  "name": "busvolbikes-html-xml-app",
+  "version": "1.0.0",
+  "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
