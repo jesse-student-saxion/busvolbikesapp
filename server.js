@@ -1,170 +1,232 @@
 const express = require('express');
 const axios = require('axios');
+const xml2js = require('xml2js');
 const path = require('path');
 const cors = require('cors');
-const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-const USED_URL = 'https://d40972d3c78b4bc6a44e816ede6281cc.hst.fietsenwijk.nl/fietsen/?cat=1';
-const NEW_URL = 'https://d40972d3c78b4bc6a44e816ede6281cc.hst.fietsenwijk.nl/fietsen/?cat=2';
+const SHOP_ID = (process.env.FIETSENWIJK_SHOP_ID || 'D40972D3C78B4BC6A44E816EDE6281CC').toUpperCase();
+const BASE_URL = `https://${SHOP_ID}.hst.fietsenwijk.nl/fietsen/xml/`;
 
 app.use(cors({ origin: '*', methods: ['GET'] }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+function xmlUrl(cat, c, b) {
+  const params = new URLSearchParams();
+  params.set('cat', String(cat));
+  if (c) params.set('c', c);
+  if (b) params.set('b', b);
+  return `${BASE_URL}?${params.toString()}`;
+}
+
+function asArray(v) {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+function text(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'object') {
+    if (typeof v._ === 'string') return v._.trim();
+    if (typeof v['#text'] === 'string') return v['#text'].trim();
+  }
+  return String(v).trim();
+}
+
+function pick(obj, keys, fallback = '') {
+  for (const key of keys) {
+    if (obj && obj[key] != null) {
+      const value = text(obj[key]);
+      if (value !== '') return value;
+    }
+  }
+  return fallback;
+}
+
+function cleanPrice(value) {
+  const s = text(value);
+  if (!s) return 'Prijs op aanvraag';
+  if (s.includes('€')) return s;
+  return `€${s}`;
+}
+
 function absUrl(url, base) {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url)) return url;
+  const s = text(url);
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
   try {
-    return new URL(url, base).href;
-  } catch (e) {
-    return url;
+    return new URL(s, base).href;
+  } catch {
+    return s;
   }
 }
 
-function cleanText(str) {
-  return String(str || '').replace(/\s+/g, ' ').trim();
-}
-
-function uniqueBy(items, keyFn) {
-  const seen = new Set();
-  return items.filter((item) => {
-    const key = keyFn(item);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function extractCards($, selectors, state, baseUrl) {
-  const results = [];
-  selectors.each((i, el) => {
-    const root = $(el);
-    const title = cleanText(
-      root.find('h1, h2, h3, h4, .title, .titel, .product-title').first().text() ||
-      root.find('[title]').first().attr('title') ||
-      root.find('img').first().attr('alt') || ''
-    );
-
-    let href = root.find('a[href]').first().attr('href') || '';
-    let image = root.find('img').first().attr('src') || root.find('img').first().attr('data-src') || '';
-    const allText = cleanText(root.text());
-    const priceMatch = allText.match(/€\s?[\d\.]+(?:,[\d]{2})?(?:,-)?/i);
-    const frameMatch = allText.match(/\b\d{2}\s?cm\b/i);
-    const kmMatch = allText.match(/\b\d{1,3}\s?-\s?\d{1,3}\s?km\b/i);
-    const motorMatch = allText.match(/\b(Bosch|Bafang|Yamaha|Shimano)[^,.]*motor\b/i);
-
-    if (!title || !href) return;
-
-    href = absUrl(href, baseUrl);
-    image = absUrl(image, baseUrl);
-
-    results.push({
-      id: String(i + 1),
-      title,
-      state,
-      stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-      price: priceMatch ? priceMatch[0] : 'Prijs op aanvraag',
-      image,
-      url: href,
-      specs: [
-        frameMatch ? frameMatch[0] + ' frame' : '',
-        motorMatch ? motorMatch[0] : '',
-        kmMatch ? kmMatch[0] + ' actieradius' : ''
-      ].filter(Boolean)
-    });
-  });
-  return uniqueBy(results, (x) => x.url || x.title);
-}
-
-function parseBikesFromHtml(html, state, baseUrl) {
-  const $ = cheerio.load(html);
-  const selectorGroups = [
-    $('article'),
-    $('.fiets, .fiets-item, .bike, .bike-item, .product, .product-item, .card'),
-    $('li'),
-    $('div')
-  ];
-
-  for (const group of selectorGroups) {
-    const items = extractCards($, group, state, baseUrl).filter((x) => x.title.length > 2);
-    if (items.length >= 2) return items;
+function collectItems(node, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  for (const [key, value] of Object.entries(node)) {
+    const k = key.toLowerCase();
+    if (['fiets', 'bike', 'bicycle', 'item', 'product', 'record'].includes(k)) {
+      for (const entry of asArray(value)) {
+        if (entry && typeof entry === 'object') out.push(entry);
+      }
+    } else if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        value.forEach(v => collectItems(v, out));
+      } else {
+        collectItems(value, out);
+      }
+    }
   }
-
-  return [];
+  return out;
 }
 
-async function fetchCategory(url, state) {
+function parseSpecs(item) {
+  const specs = [
+    pick(item, ['frame_size', 'framesize', 'maat', 'frame', 'framemaat']),
+    pick(item, ['motor_type', 'motor', 'motortype']),
+    pick(item, ['range', 'actieradius', 'reach']),
+    pick(item, ['color', 'kleur']),
+    pick(item, ['year', 'bouwjaar', 'modeljaar'])
+  ].filter(Boolean);
+  return [...new Set(specs)];
+}
+
+function mapBike(item, state, sourceUrl, index) {
+  const title = pick(item, ['title', 'titel', 'name', 'naam', 'model'], 'Onbekende fiets');
+  const image = absUrl(pick(item, ['image_url', 'image', 'foto', 'afbeelding', 'img']), sourceUrl);
+  const url = absUrl(pick(item, ['detail_url', 'url', 'link', 'href', 'detail']), sourceUrl) || '#';
+  const rawState = pick(item, ['state', 'status', 'bicyclestate']);
+  const inferredNew = rawState === '2' || /nieuw/i.test(rawState) || state === 'new';
+
+  return {
+    id: pick(item, ['id', 'ID', 'guid', 'uuid'], String(index + 1)),
+    title,
+    brand: pick(item, ['brand', 'merk']),
+    category: pick(item, ['category', 'categorie', 'type']),
+    state: inferredNew ? 'new' : 'used',
+    stateLabel: inferredNew ? 'Nieuw' : 'Gebruikt',
+    price: cleanPrice(pick(item, ['price', 'prijs', 'saleprice', 'verkoopprijs'])),
+    image,
+    url,
+    description: pick(item, ['description', 'omschrijving']),
+    specs: parseSpecs(item)
+  };
+}
+
+async function fetchXmlFeed(cat, state, c, b) {
+  const url = xmlUrl(cat, c, b);
   const response = await axios.get(url, {
     timeout: 30000,
+    responseType: 'arraybuffer',
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
-      'Accept': 'text/html,application/xhtml+xml'
+      'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/3.0)',
+      'Accept': 'application/xml, text/xml, */*'
     }
   });
-  return parseBikesFromHtml(response.data, state, url);
+
+  const xml = Buffer.from(response.data).toString('utf8');
+  const parser = new xml2js.Parser({
+    explicitArray: false,
+    mergeAttrs: true,
+    trim: true,
+    normalize: true
+  });
+
+  const parsed = await parser.parseStringPromise(xml);
+  const items = collectItems(parsed);
+  const fietsen = items.map((item, idx) => mapBike(item, state, url, idx));
+  return { fietsen, source: url, rawCount: items.length };
 }
 
-function getFallback(baseUrl) {
+function getFallback(req) {
+  const base = `${req.protocol}://${req.get('host')}`;
   return [
     {
       id: '1',
       title: 'Qwic Premium MN7',
+      brand: 'Qwic',
+      category: 'Elektrische fietsen',
       state: 'used',
       stateLabel: 'Gebruikt',
       price: '€1.899,-',
-      image: baseUrl + '/placeholder-used.svg',
-      url: '#',
+      image: `${base}/images/showroom-fietsen.jpg`,
+      url: '#contact',
+      description: '',
       specs: ['49cm frame', 'Bafang middenmotor', '50-80km actieradius']
     },
     {
       id: '2',
       title: 'Gazelle Grenoble C7',
+      brand: 'Gazelle',
+      category: 'Elektrische fietsen',
       state: 'new',
       stateLabel: 'Nieuw',
       price: '€2.499,-',
-      image: baseUrl + '/placeholder-new.svg',
-      url: '#',
+      image: `${base}/images/fiets-spotlight.jpg`,
+      url: '#contact',
+      description: '',
       specs: ['53cm frame', 'Bosch middenmotor', '70-120km actieradius']
+    },
+    {
+      id: '3',
+      title: 'Cortina E-Transport',
+      brand: 'Cortina',
+      category: 'Transportfietsen',
+      state: 'used',
+      stateLabel: 'Gebruikt',
+      price: '€1.599,-',
+      image: `${base}/images/gezin-fietsen.jpg`,
+      url: '#contact',
+      description: '',
+      specs: ['57cm frame', 'Bafang voorwielmotor', '40-60km actieradius']
+    },
+    {
+      id: '4',
+      title: 'Giant DailyTour E+',
+      brand: 'Giant',
+      category: 'Elektrische fietsen',
+      state: 'new',
+      stateLabel: 'Nieuw',
+      price: '€2.199,-',
+      image: `${base}/images/fiets-nieuw.jpg`,
+      url: '#contact',
+      description: '',
+      specs: ['50cm frame', 'Yamaha middenmotor', '60-100km actieradius']
     }
   ];
 }
 
 app.get('/api/fietsen', async (req, res) => {
   const type = String(req.query.type || 'all').toLowerCase();
-  const baseUrl = req.protocol + '://' + req.get('host');
+  const category = req.query.c || '';
+  const brand = req.query.b || '';
 
   try {
-    let used = [];
-    let fresh = [];
+    const tasks = [];
+    if (type === 'all' || type === 'used') tasks.push(fetchXmlFeed(1, 'used', category, brand));
+    if (type === 'all' || type === 'new') tasks.push(fetchXmlFeed(2, 'new', category, brand));
 
-    if (type === 'all' || type === 'used') {
-      used = await fetchCategory(USED_URL, 'used');
-    }
-    if (type === 'all' || type === 'new') {
-      fresh = await fetchCategory(NEW_URL, 'new');
-    }
-
-    let fietsen = used.concat(fresh);
-    if (!fietsen.length) {
-      fietsen = getFallback(baseUrl);
-    }
+    const results = await Promise.all(tasks);
+    const fietsen = results.flatMap(r => r.fietsen);
 
     res.json({
       success: true,
       count: fietsen.length,
       fietsen,
-      source: { used: USED_URL, new: NEW_URL },
-      laatsteUpdate: new Date().toISOString()
+      source: results.map(r => r.source),
+      laatsteUpdate: new Date().toISOString(),
+      filters: { type, c: category || null, b: brand || null }
     });
   } catch (error) {
-    console.error('Error fetching voorraad:', error.message);
-    const fietsen = getFallback(baseUrl);
+    console.error('Fietsen XML fout:', error.message);
+    const fallback = getFallback(req);
     res.json({
       success: true,
-      count: fietsen.length,
-      fietsen,
+      count: fallback.length,
+      fietsen: fallback,
       source: 'fallback',
       error: error.message,
       laatsteUpdate: new Date().toISOString()
@@ -172,43 +234,77 @@ app.get('/api/fietsen', async (req, res) => {
   }
 });
 
+app.get('/api/fietsen.xml', async (req, res) => {
+  const type = String(req.query.type || 'all').toLowerCase();
+  const category = req.query.c || '';
+  const brand = req.query.b || '';
+
+  try {
+    const tasks = [];
+    if (type === 'all' || type === 'used') tasks.push(fetchXmlFeed(1, 'used', category, brand));
+    if (type === 'all' || type === 'new') tasks.push(fetchXmlFeed(2, 'new', category, brand));
+    const results = await Promise.all(tasks);
+    const fietsen = results.flatMap(r => r.fietsen);
+
+    const builder = new xml2js.Builder({ rootName: 'fietsen', headless: false });
+    const xml = builder.buildObject({
+      fiets: fietsen.map(f => ({
+        id: f.id,
+        titel: f.title,
+        merk: f.brand,
+        categorie: f.category,
+        status: f.state,
+        prijs: f.price,
+        afbeelding: f.image,
+        url: f.url,
+        specs: { spec: f.specs }
+      }))
+    });
+
+    res.type('application/xml; charset=utf-8').send(xml);
+  } catch (error) {
+    res.status(500).type('application/xml; charset=utf-8').send(`<?xml version="1.0" encoding="UTF-8"?><error>${String(error.message).replace(/[<&>]/g, '')}</error>`);
+  }
+});
+
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    shopId: SHOP_ID,
+    xmlBase: BASE_URL
+  });
 });
 
 app.get('/embed.js', (req, res) => {
-  const origin = req.protocol + '://' + req.get('host');
   res.type('application/javascript').send(`
 (function(){
-  var API_BASE = ${JSON.stringify(origin)};
-  function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
-  function render(container, fietsen){
-    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;font-family:Arial,sans-serif;">';
-    fietsen.forEach(function(f){
-      html += '<div style="border:1px solid #ddd;border-radius:12px;padding:16px;background:#fff">';
-      if(f.image){html += '<img src="'+esc(f.image)+'" alt="'+esc(f.title)+'" style="width:100%;height:220px;object-fit:cover;border-radius:8px;margin-bottom:12px">';}
-      html += '<div style="font-size:12px;font-weight:700;display:inline-block;background:'+(f.state==='new'?'#2563eb':'#22c55e')+';color:#fff;padding:4px 10px;border-radius:999px;margin-bottom:10px">'+esc(f.stateLabel)+'</div>';
-      html += '<h3 style="margin:0 0 8px 0;color:#0f172a">'+esc(f.title)+'</h3>';
-      if(Array.isArray(f.specs)&&f.specs.length){html += '<div style="color:#64748b;font-size:14px;margin-bottom:10px">'+esc(f.specs.join(' • '))+'</div>';}
-      html += '<div style="font-size:22px;font-weight:700;color:#22c55e;margin-bottom:12px">'+esc(f.price||'Prijs op aanvraag')+'</div>';
-      html += '<a href="'+esc(f.url||'#')+'" style="display:inline-block;background:#111827;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none">Bekijken</a>';
-      html += '</div>';
-    });
-    html += '</div>';
-    container.innerHTML = html;
+  function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function render(container,fietsen){
+    if(!fietsen.length){container.innerHTML='Geen fietsen gevonden';return;}
+    container.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">'+
+      fietsen.map(function(f){
+        var specs=Array.isArray(f.specs)?f.specs.join(' • '):'';
+        return '<div style="border:1px solid #ddd;border-radius:12px;padding:16px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06);">'+
+          (f.image?'<img src="'+esc(f.image)+'" alt="'+esc(f.title)+'" style="width:100%;height:220px;object-fit:cover;border-radius:8px;margin-bottom:12px;">':'')+
+          '<h3 style="margin:0 0 8px 0;font-family:Arial,sans-serif;">'+esc(f.title)+'</h3>'+
+          '<div style="color:#666;margin-bottom:8px;font-family:Arial,sans-serif;">'+esc(f.stateLabel)+'</div>'+
+          '<div style="margin-bottom:10px;color:#444;font-family:Arial,sans-serif;font-size:14px;">'+esc(specs)+'</div>'+
+          '<div style="font-size:22px;font-weight:700;color:#22c55e;margin-bottom:12px;font-family:Arial,sans-serif;">'+esc(f.price)+'</div>'+
+          '<a href="'+esc(f.url||'#')+'" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#111;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-family:Arial,sans-serif;">Bekijken</a>'+
+        '</div>';
+      }).join('')+
+    '</div>';
   }
-  function load(container){
-    var type = container.getAttribute('data-type') || 'all';
-    container.innerHTML = 'Fietsen laden...';
-    fetch(API_BASE + '/api/fietsen?type=' + encodeURIComponent(type))
-      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(data){ render(container, Array.isArray(data.fietsen) ? data.fietsen : []); })
-      .catch(function(err){ container.innerHTML = 'Fietsen konden niet worden geladen'; console.error(err); });
+  function loadOne(container){
+    var type=container.getAttribute('data-type')||'all';
+    var apiBase=(window.BVB_API_BASE||'').replace(/\/$/,'');
+    var src=apiBase?apiBase+'/api/fietsen?type='+encodeURIComponent(type):'/api/fietsen?type='+encodeURIComponent(type);
+    container.innerHTML='Fietsen laden...';
+    fetch(src).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(data){render(container,Array.isArray(data.fietsen)?data.fietsen:[]);}).catch(function(err){console.error(err);container.innerHTML='Fietsen konden niet worden geladen';});
   }
-  var single = document.getElementById('bvb-voorraad');
-  if(single) load(single);
-  var list = document.querySelectorAll('.busvolbikes-voorraad');
-  for(var i=0;i<list.length;i++) load(list[i]);
+  var byId=document.getElementById('bvb-voorraad'); if(byId) loadOne(byId);
+  var byClass=document.querySelectorAll('.busvolbikes-voorraad'); byClass.forEach(loadOne);
 })();
   `);
 });

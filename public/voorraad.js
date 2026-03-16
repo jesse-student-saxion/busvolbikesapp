@@ -1,38 +1,83 @@
 (function(){
-  var state = 'all';
-  var status = document.getElementById('status');
-  var grid = document.getElementById('grid');
-  var buttons = document.querySelectorAll('.filter');
+  const grid = document.getElementById('grid');
+  const countEl = document.getElementById('count');
+  const updatedEl = document.getElementById('updated');
+  const buttons = document.querySelectorAll('.filter');
+  let currentType = 'all';
+  let fietsen = [];
 
-  function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
-  function render(items){
-    if(!items.length){grid.innerHTML='';status.textContent='Geen fietsen gevonden';return;}
-    status.textContent = items.length + ' fietsen gevonden';
-    grid.innerHTML = items.map(function(f){
-      return '<article class="card">'
-        + (f.image ? '<img src="'+esc(f.image)+'" alt="'+esc(f.title)+'">' : '')
-        + '<div class="badge '+esc(f.state)+'">'+esc(f.stateLabel)+'</div>'
-        + '<h3>'+esc(f.title)+'</h3>'
-        + '<div class="meta">'+esc((Array.isArray(f.specs)?f.specs:[]).join(' • '))+'</div>'
-        + '<div class="price">'+esc(f.price || 'Prijs op aanvraag')+'</div>'
-        + '<a class="link" href="'+esc(f.url || '#')+'">Bekijken</a>'
-        + '</article>';
+  function esc(v){
+    return String(v || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function render() {
+    let shown = fietsen;
+    if (currentType !== 'all') {
+      shown = fietsen.filter(f => f.state === currentType);
+    }
+
+    countEl.textContent = shown.length + ' fietsen beschikbaar';
+
+    if (!shown.length) {
+      grid.innerHTML = '<div class="loading">Geen fietsen gevonden met dit filter.</div>';
+      return;
+    }
+
+    grid.innerHTML = shown.map(function(f){
+      const badgeClass = f.state === 'new' ? 'badge new' : 'badge';
+      const specs = Array.isArray(f.specs) ? f.specs : [];
+      return '<article class="card">' +
+        '<div class="card-image">' +
+          '<span class="' + badgeClass + '">' + esc(f.stateLabel) + '</span>' +
+          (f.image ? '<img src="' + esc(f.image) + '" alt="' + esc(f.title) + '" loading="lazy" onerror="this.style.display=\'none\'">' : '') +
+        '</div>' +
+        '<div class="card-body">' +
+          '<h3>' + esc(f.title) + '</h3>' +
+          '<div class="meta">' + esc([f.brand, f.category].filter(Boolean).join(' • ')) + '</div>' +
+          '<div class="specs">' + specs.map(s => '<span class="spec">' + esc(s) + '</span>').join('') + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="price">' + esc(f.price) + '</span>' +
+            '<a class="link-btn" href="' + esc(f.url || '#') + '" target="_blank" rel="noopener noreferrer">Bekijken</a>' +
+          '</div>' +
+        '</div>' +
+      '</article>';
     }).join('');
   }
-  function load(){
-    status.textContent='Fietsen laden...';
-    fetch('/api/fietsen?type='+encodeURIComponent(state))
-      .then(function(r){if(!r.ok) throw new Error('HTTP '+r.status); return r.json();})
-      .then(function(data){render(Array.isArray(data.fietsen)?data.fietsen:[]);})
-      .catch(function(e){status.textContent='Fietsen konden niet worden geladen'; console.error(e);});
+
+  function load() {
+    grid.innerHTML = '<div class="loading">🚲 Fietsen worden geladen...</div>';
+    fetch('/api/fietsen')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => {
+        fietsen = Array.isArray(data.fietsen) ? data.fietsen : [];
+        if (data.laatsteUpdate) {
+          const d = new Date(data.laatsteUpdate);
+          if (!isNaN(d)) {
+            updatedEl.textContent = 'Laatste update: ' + d.toLocaleString('nl-NL');
+          }
+        }
+        render();
+      })
+      .catch(err => {
+        console.error(err);
+        grid.innerHTML = '<div class="error">Fietsen konden niet worden geladen.</div>';
+        countEl.textContent = 'Fout bij laden';
+      });
   }
-  for(var i=0;i<buttons.length;i++){
-    buttons[i].addEventListener('click', function(){
-      for(var j=0;j<buttons.length;j++) buttons[j].classList.remove('active');
-      this.classList.add('active');
-      state = this.getAttribute('data-type') || 'all';
-      load();
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', function(){
+      buttons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentType = btn.dataset.type;
+      render();
     });
-  }
+  });
+
   load();
 })();

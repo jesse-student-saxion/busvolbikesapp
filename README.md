@@ -1,6 +1,6 @@
-# Bus vol Bikes app
+# Bus vol Bikes XML app
 
-Railway-ready Node/Express app voor Bus vol Bikes.
+Nieuwe versie op basis van de officiële Fietsenwijk XML-feed.
 
 ## Starten
 
@@ -9,29 +9,53 @@ npm install
 npm start
 ```
 
-## Belangrijke pagina's
+Lokaal draait de app dan op:
+- http://localhost:3000
+- http://localhost:3000/voorraad
+- http://localhost:3000/api/fietsen
+- http://localhost:3000/api/fietsen.xml
+- http://localhost:3000/api/health
 
-- `/` homepage
-- `/voorraad` voorraadpagina
-- `/api/fietsen` JSON API
-- `/api/fietsen?type=used` alleen gebruikt
-- `/api/fietsen?type=new` alleen nieuw
-- `/api/fietsen.xml` XML feed
-- `/api/health` healthcheck
-- `/embed.js` WordPress embed script
+## Railway
+
+Deze app is Railway-ready.
+
+## Omgevingsvariabele
+
+Optioneel kun je een andere Fietsenwijk shop-id zetten:
+
+```bash
+FIETSENWIJK_SHOP_ID=D40972D3C78B4BC6A44E816EDE6281CC
+```
 
 ## WordPress embed
 
-Plak dit in een Custom HTML blok:
+Plak dit in een Custom HTML-blok:
 
 ```html
 <div id="bvb-voorraad"></div>
+<script>
+window.BVB_API_BASE = 'https://api.busvolbikes.nl';
+</script>
 <script src="https://api.busvolbikes.nl/embed.js"></script>
 ```
 
-Of alleen gebruikt:
+Alleen gebruikte fietsen:
 
 ```html
 <div class="busvolbikes-voorraad" data-type="used"></div>
+<script>
+window.BVB_API_BASE = 'https://api.busvolbikes.nl';
+</script>
+<script src="https://api.busvolbikes.nl/embed.js"></script>
+```
+
+Alleen nieuwe fietsen:
+
+```html
+<div class="busvolbikes-voorraad" data-type="new"></div>
+<script>
+window.BVB_API_BASE = 'https://api.busvolbikes.nl';
+</script>
 <script src="https://api.busvolbikes.nl/embed.js"></script>
 ```
