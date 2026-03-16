@@ -198,5 +198,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(\`Bus vol Bikes server running on port \${PORT}\`);
-  console.log(\`Environment: \${process.env.NODE_ENV || 'development'}\`);
+console.log(`Bus vol Bikes server running on port ${PORT}`);
+console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
