@@ -397,7 +397,7 @@ app.get('/fiets/:id', async (req, res) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${item.title} | Bus vol Bikes</title>
+<title>${item.title} | Voorraadportaal</title>
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -415,7 +415,7 @@ app.get('/fiets/:id', async (req, res) => {
     <div class="detail-price">${item.price}</div>
     <div class="spec-list">${rows || '<div class="spec-row"><span>Info</span><strong>Geen details gevonden</strong></div>'}</div>
     <div class="detail-actions">
-      <a class="btn btn-primary" href="${item.detailUrl}" target="_blank" rel="noopener noreferrer">Originele pagina</a>
+      <a class="btn btn-primary" href="${item.detailUrl}" target="_blank" rel="noopener noreferrer">Externe pagina</a>
       <a class="btn btn-secondary" href="/voorraad">Terug</a>
     </div>
   </div>
@@ -461,5 +461,5 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 app.get('/voorraad', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voorraad.html')));
 
 app.listen(PORT, () => {
-  console.log('Bus vol Bikes server running on port ' + PORT);
+  console.log('Voorraadportaal server running on port ' + PORT);
 });
