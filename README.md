@@ -5,7 +5,9 @@ Routes:
 - /voorraad
 - /api/fietsen?refresh=1
 - /api/fietsen.xml
+- /api/health
 - /fiets/:id
+- /image/:id
 - /embed.js
 
 WordPress:

@@ -1,8 +1,8 @@
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const cors = require('cors');
 const path = require('path');
+const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,8 +19,27 @@ let fietsenCache = { timestamp: 0, data: null };
 
 function decodeHtmlBuffer(buf) {
   let html = Buffer.from(buf).toString('utf8');
-  if (html.includes('�')) html = Buffer.from(buf).toString('latin1');
+  if (html.includes('�')) {
+    html = Buffer.from(buf).toString('latin1');
+  }
   return html;
+}
+
+async function fetchWithHeaders(url, extra = {}) {
+  return axios.get(url, {
+    timeout: 25000,
+    responseType: 'arraybuffer',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
+      'Accept': 'text/html,application/xhtml+xml,image/*,*/*'
+    },
+    ...extra
+  });
+}
+
+async function fetchHtml(url) {
+  const response = await fetchWithHeaders(url);
+  return decodeHtmlBuffer(response.data);
 }
 
 function cleanText(value) {
@@ -46,26 +65,99 @@ function buildRawImageUrl(bikeId) {
   return `${BASE}/fietsen/detail/images/?b=${bikeId}&css=/css/default.css`;
 }
 
-function buildLocalImageUrl(bikeId) {
-  return `/image/${bikeId}`;
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function fetchBuffer(url, extra = {}) {
-  const response = await axios.get(url, {
-    timeout: 25000,
-    responseType: 'arraybuffer',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
-      'Accept': 'text/html,application/xhtml+xml,image/*,*/*'
-    },
-    ...extra
-  });
-  return response.data;
+function findField(html, label) {
+  const escaped = escapeRegex(label);
+  const patterns = [
+    new RegExp(`${escaped}:\\s*<\\/[^>]+>\\s*([^<\\n\\r]+)`, 'i'),
+    new RegExp(`${escaped}:\\s*([^<\\n\\r]+)`, 'i')
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      return cleanText(match[1].replace(/<[^>]+>/g, ' '));
+    }
+  }
+  return '';
 }
 
-async function fetchHtml(url) {
-  const buf = await fetchBuffer(url);
-  return decodeHtmlBuffer(buf);
+function findTitle(html) {
+  const patterns = [
+    /<h1[^>]*>\s*([^<]+?)\s*<\/h1>/i,
+    /<h2[^>]*>\s*([^<]+?)\s*<\/h2>/i,
+    /<title[^>]*>\s*([^<]+?)\s*<\/title>/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      return cleanText(match[1].replace(/\s*\|\s*.*$/, ''));
+    }
+  }
+  return 'Onbekende fiets';
+}
+
+function findPrice(html) {
+  const patterns = [
+    /Prijs:\s*<\/[^>]+>\s*(€\s?[\d\.\,]+(?:,-)?)/i,
+    /Prijs:\s*(€\s?[\d\.\,]+(?:,-)?)/i,
+    /(€\s?[\d\.\,]+(?:,-)?)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      return cleanText(match[1]);
+    }
+  }
+  return 'Prijs op aanvraag';
+}
+
+function parseDetailPage(html, bikeId, state) {
+  const title = findTitle(html);
+  const soort = findField(html, 'Soort');
+  const kleur = findField(html, 'Kleur');
+  const maat = findField(html, 'Maat');
+  const wielmaat = findField(html, 'Wielmaat');
+  const gewicht = findField(html, 'Gewicht');
+  const modeljaar = findField(html, 'Modeljaar');
+  const bijzonderheden = findField(html, 'Bijzonderheden');
+  const artNummer = findField(html, 'Art. nummer');
+  const garantie = findField(html, 'Garantie');
+  const status = findField(html, 'Status');
+
+  return {
+    id: bikeId,
+    title,
+    state,
+    stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
+    price: findPrice(html),
+    image: `/image/${bikeId}`,
+    rawImage: buildRawImageUrl(bikeId),
+    url: `/fiets/${bikeId}`,
+    detailUrl: buildDetailUrl(bikeId),
+    soort,
+    kleur,
+    maat,
+    wielmaat,
+    gewicht,
+    modeljaar,
+    bijzonderheden,
+    artNummer,
+    garantie,
+    status,
+    specs: [
+      maat && `Maat: ${maat}`,
+      kleur && `Kleur: ${kleur}`,
+      wielmaat && `Wielmaat: ${wielmaat}`,
+      gewicht && `Gewicht: ${gewicht}`,
+      modeljaar && `Modeljaar: ${modeljaar}`
+    ].filter(Boolean)
+  };
 }
 
 async function fetchListBikeIds(listUrl) {
@@ -84,82 +176,6 @@ async function fetchListBikeIds(listUrl) {
   return [...ids];
 }
 
-function lineValue(lines, label) {
-  const lower = label.toLowerCase();
-  const line = lines.find((l) => l.toLowerCase().startsWith(lower + ':'));
-  return line ? cleanText(line.slice(label.length + 1)) : '';
-}
-
-function extractPrice(lines) {
-  const priceLine = lines.find((l) => l.toLowerCase().startsWith('prijs:'));
-  if (!priceLine) return 'Prijs op aanvraag';
-  const m = priceLine.match(/€\s?[\d\.\,]+(?:,-)?/);
-  return m ? m[0] : 'Prijs op aanvraag';
-}
-
-function parseDetailPage(html, bikeId, state) {
-  const $ = cheerio.load(html);
-
-  const title =
-    cleanText($('h1').first().text()) ||
-    cleanText($('h2').first().text()) ||
-    'Onbekende fiets';
-
-  let bodyText = $('body').text()
-    .replace(/\r/g, '\n')
-    .replace(/\t/g, ' ')
-    .replace(/[ ]{2,}/g, ' ');
-  const rawLines = bodyText.split('\n').map(cleanText).filter(Boolean);
-
-  const lines = rawLines.filter((line) => {
-    const lower = line.toLowerCase();
-    return !lower.startsWith('klik op de foto') && lower !== 'terug';
-  });
-
-  const soort = lineValue(lines, 'Soort');
-  const kleur = lineValue(lines, 'Kleur');
-  const maat = lineValue(lines, 'Maat');
-  const wielmaat = lineValue(lines, 'Wielmaat');
-  const gewicht = lineValue(lines, 'Gewicht');
-  const modeljaar = lineValue(lines, 'Modeljaar');
-  const bijzonderheden = lineValue(lines, 'Bijzonderheden');
-  const artNummer = lineValue(lines, 'Art. nummer');
-  const garantie = lineValue(lines, 'Garantie');
-  const status = lineValue(lines, 'Status');
-  const price = extractPrice(lines);
-
-  const specs = [
-    maat && `Maat: ${maat}`,
-    kleur && `Kleur: ${kleur}`,
-    wielmaat && `Wielmaat: ${wielmaat}`,
-    gewicht && `Gewicht: ${gewicht}`,
-    modeljaar && `Modeljaar: ${modeljaar}`
-  ].filter(Boolean);
-
-  return {
-    id: bikeId,
-    title,
-    state,
-    stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price,
-    image: buildLocalImageUrl(bikeId),
-    rawImage: buildRawImageUrl(bikeId),
-    url: `/fiets/${bikeId}`,
-    detailUrl: buildDetailUrl(bikeId),
-    soort,
-    kleur,
-    maat,
-    wielmaat,
-    gewicht,
-    modeljaar,
-    bijzonderheden,
-    artNummer,
-    garantie,
-    status,
-    specs
-  };
-}
-
 async function fetchBikeDetails(bikeId, state) {
   const html = await fetchHtml(buildDetailUrl(bikeId));
   return parseDetailPage(html, bikeId, state);
@@ -168,7 +184,7 @@ async function fetchBikeDetails(bikeId, state) {
 async function fetchCategory(listUrl, state) {
   const ids = await fetchListBikeIds(listUrl);
   const results = await Promise.allSettled(ids.map((id) => fetchBikeDetails(id, state)));
-  return results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
 }
 
 async function getFietsen(forceRefresh = false) {
@@ -180,9 +196,9 @@ async function getFietsen(forceRefresh = false) {
     fetchCategory(NEW_URL, 'new')
   ]);
 
-  const bikes = [...used, ...fresh];
-  fietsenCache = { timestamp: Date.now(), data: bikes };
-  return bikes;
+  const data = [...used, ...fresh];
+  fietsenCache = { timestamp: Date.now(), data };
+  return data;
 }
 
 function escapeXml(value) {
@@ -197,17 +213,20 @@ function escapeXml(value) {
 app.get('/image/:id', async (req, res) => {
   try {
     const bikeId = req.params.id;
-    const img = await fetchBuffer(buildRawImageUrl(bikeId), {
+    const upstream = await fetchWithHeaders(buildRawImageUrl(bikeId), {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
         'Referer': buildDetailUrl(bikeId),
         'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
       }
     });
+
+    const contentType = upstream.headers['content-type'] || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.send(Buffer.from(img));
-  } catch (e) {
+    res.send(Buffer.from(upstream.data));
+  } catch (error) {
+    console.error('Image proxy fout:', error.message);
     res.status(404).send('Image not found');
   }
 });
@@ -223,6 +242,7 @@ app.get('/api/fietsen', async (req, res) => {
       source: { used: USED_URL, new: NEW_URL }
     });
   } catch (error) {
+    console.error('Fietsen fout:', error.message);
     res.status(500).json({
       success: false,
       count: 0,
@@ -310,7 +330,7 @@ app.get('/fiets/:id', async (req, res) => {
     <span class="badge">${item.stateLabel}</span>
     <h1 class="detail-title">${item.title}</h1>
     <div class="detail-price">${item.price}</div>
-    <div class="spec-list">${rows}</div>
+    <div class="spec-list">${rows || '<div class="spec-row"><span>Info</span><strong>Geen details gevonden</strong></div>'}</div>
     <div class="detail-actions">
       <a class="btn btn-primary" href="${item.detailUrl}" target="_blank" rel="noopener noreferrer">Originele pagina</a>
       <a class="btn btn-secondary" href="/voorraad">Terug</a>
@@ -332,6 +352,7 @@ app.get('/embed.js', (req, res) => {
   function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function render(el, items, type){
     if(type && type !== 'all') items = items.filter(function(x){return x.state===type;});
+    if(!items.length){el.innerHTML='<div style="padding:20px;border:1px solid #e5e7eb;border-radius:20px;background:#fff">Geen fietsen gevonden.</div>';return;}
     el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">' + items.map(function(f){
       return '<article style="background:#fff;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,.07)">' +
       '<div style="height:230px;background:#f6f7f8;padding:14px;display:flex;align-items:center;justify-content:center"><img src="' + esc(API_BASE + f.image) + '" alt="' + esc(f.title) + '" style="width:100%;height:100%;object-fit:contain"></div>' +
@@ -345,7 +366,7 @@ app.get('/embed.js', (req, res) => {
   function mount(el){
     var type = el.getAttribute('data-type') || 'all';
     el.innerHTML = 'Fietsen laden...';
-    fetch(API_BASE + '/api/fietsen').then(function(r){return r.json();}).then(function(d){render(el, Array.isArray(d.fietsen)?d.fietsen:[], type);}).catch(function(){el.innerHTML='Fietsen konden niet worden geladen';});
+    fetch(API_BASE + '/api/fietsen?refresh=1').then(function(r){return r.json();}).then(function(d){render(el, Array.isArray(d.fietsen)?d.fietsen:[], type);}).catch(function(){el.innerHTML='Fietsen konden niet worden geladen';});
   }
   var one = document.getElementById('bvb-voorraad'); if(one) mount(one);
   document.querySelectorAll('.busvolbikes-voorraad').forEach(mount);

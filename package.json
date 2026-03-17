@@ -1,5 +1,5 @@
 {
-  "name": "busvolbikes-v10-pretty",
+  "name": "busvolbikes-v11-fixed",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
