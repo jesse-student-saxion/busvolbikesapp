@@ -64,20 +64,30 @@ function buildRawImageUrl(bikeId) {
   return `${BASE}/fietsen/detail/images/?b=${bikeId}&css=/css/default.css`;
 }
 
-async function fetchListBikeIds(listUrl) {
+async function fetchListItems(listUrl) {
   const html = await fetchHtml(listUrl);
   const $ = cheerio.load(html);
-  const ids = new Set();
+  const items = new Map();
 
   $('a[href*="/fietsen/detail/"]').each((_, el) => {
     const href = $(el).attr('href');
     if (!href) return;
     const fullUrl = new URL(href, BASE).href;
     const bikeId = getBikeId(fullUrl);
-    if (bikeId) ids.add(bikeId);
+    if (!bikeId || items.has(bikeId)) return;
+
+    const card = $(el).closest('article, li, .item, .card, .fiets, .bike, div');
+    let title =
+      cleanText(card.find('h1,h2,h3,h4').first().text()) ||
+      cleanText($(el).attr('title')) ||
+      cleanText($(el).text());
+
+    if (!title || /^meer informatie/i.test(title)) return;
+
+    items.set(bikeId, { id: bikeId, title });
   });
 
-  return [...ids];
+  return [...items.values()];
 }
 
 function getCellValue($, label) {
@@ -99,15 +109,16 @@ function getCellValue($, label) {
   return value;
 }
 
-function parseDetailPage(html, bikeId, state) {
+function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   const $ = cheerio.load(html);
 
-  const title =
+  let title =
     cleanText($('h1').first().text()) ||
     cleanText($('h2').first().text()) ||
+    fallbackTitle ||
     'Onbekende fiets';
 
-  const pageText = cleanText($('body').text());
+  if (title === 'Onbekende fiets' && fallbackTitle) title = fallbackTitle;
 
   const soort = getCellValue($, 'Soort');
   const kleur = getCellValue($, 'Kleur');
@@ -119,18 +130,16 @@ function parseDetailPage(html, bikeId, state) {
   const artNummer = getCellValue($, 'Art. nummer');
   const garantie = getCellValue($, 'Garantie');
   const status = getCellValue($, 'Status');
-
-  const priceMatch =
-    pageText.match(/Prijs\s*:\s*€\s?[\d\.\,]+(?:,-)?/i) ||
-    pageText.match(/€\s?[\d\.\,]+(?:,-)?/);
+  const prijsCell = getCellValue($, 'Prijs');
+  const prijsMatch = prijsCell.match(/€\s?[\d\.\,]+(?:,-)?/);
 
   return {
     id: bikeId,
     title,
     state,
     stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price: priceMatch ? cleanText(priceMatch[0].replace(/Prijs\s*:\s*/i, '')) : 'Prijs op aanvraag',
-    image: buildRawImageUrl(bikeId),
+    price: prijsMatch ? cleanText(prijsMatch[0]) : 'Prijs op aanvraag',
+    image: `/image/${bikeId}`,
     rawImage: buildRawImageUrl(bikeId),
     url: `/fiets/${bikeId}`,
     detailUrl: buildDetailUrl(bikeId),
@@ -154,14 +163,14 @@ function parseDetailPage(html, bikeId, state) {
   };
 }
 
-async function fetchBikeDetails(bikeId, state) {
-  const html = await fetchHtml(buildDetailUrl(bikeId));
-  return parseDetailPage(html, bikeId, state);
+async function fetchBikeDetails(listItem, state) {
+  const html = await fetchHtml(buildDetailUrl(listItem.id));
+  return parseDetailPage(html, listItem.id, state, listItem.title);
 }
 
 async function fetchCategory(listUrl, state) {
-  const ids = await fetchListBikeIds(listUrl);
-  const results = await Promise.allSettled(ids.map((id) => fetchBikeDetails(id, state)));
+  const items = await fetchListItems(listUrl);
+  const results = await Promise.allSettled(items.map((item) => fetchBikeDetails(item, state)));
   return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
 }
 
@@ -187,6 +196,32 @@ function escapeXml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
+
+app.get('/image/:id', async (req, res) => {
+  try {
+    const bikeId = req.params.id;
+    const imageUrl = buildRawImageUrl(bikeId);
+    const detailUrl = buildDetailUrl(bikeId);
+
+    const upstream = await axios.get(imageUrl, {
+      timeout: 25000,
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
+        'Referer': detailUrl,
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
+      }
+    });
+
+    const contentType = upstream.headers['content-type'] || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(upstream.data));
+  } catch (error) {
+    console.error('Image proxy fout:', error.message);
+    res.status(404).send('Image not found');
+  }
+});
 
 app.get('/api/fietsen', async (req, res) => {
   try {
@@ -251,7 +286,13 @@ app.get('/api/health', (req, res) => {
 app.get('/fiets/:id', async (req, res) => {
   try {
     const bikeId = req.params.id;
-    const item = parseDetailPage(await fetchHtml(buildDetailUrl(bikeId)), bikeId, 'used');
+    const fietsen = await getFietsen(false);
+    const item = fietsen.find(f => f.id === bikeId);
+
+    if (!item) {
+      res.status(404).send('Fiets niet gevonden');
+      return;
+    }
 
     const rows = [
       ['Soort', item.soort],
@@ -312,7 +353,7 @@ app.get('/embed.js', (req, res) => {
     if(!items.length){el.innerHTML='<div style="padding:20px;border:1px solid #e5e7eb;border-radius:20px;background:#fff">Geen fietsen gevonden.</div>';return;}
     el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">' + items.map(function(f){
       return '<article style="background:#fff;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,.07)">' +
-      '<div style="height:230px;background:#f6f7f8;padding:14px;display:flex;align-items:center;justify-content:center"><img src="' + esc(f.image) + '" alt="' + esc(f.title) + '" style="width:100%;height:100%;object-fit:contain"></div>' +
+      '<div style="height:230px;background:#f6f7f8;padding:14px;display:flex;align-items:center;justify-content:center"><img src="' + esc(API_BASE + f.image) + '" alt="' + esc(f.title) + '" style="width:100%;height:100%;object-fit:contain"></div>' +
       '<div style="padding:18px"><span style="display:inline-flex;padding:9px 14px;border-radius:999px;background:#e7f4ee;color:#1f7a5c;font-weight:800;font-size:14px;margin-bottom:12px">' + esc(f.stateLabel) + '</span>' +
       '<h3 style="margin:0 0 8px;font-size:19px;line-height:1.3;color:#0f172a">' + esc(f.title) + '</h3>' +
       '<div style="color:#64748b;min-height:42px;margin-bottom:14px">' + esc((f.specs||[]).slice(0,2).join(' • ')) + '</div>' +
