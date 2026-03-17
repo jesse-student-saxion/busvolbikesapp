@@ -94,29 +94,7 @@ Deze variant bevat filters voor:
 - Gebruikt
 - Nieuw
 
-### HTML
 
-```html
-<div class="vp-embed-wrap"
-     data-api-base="https://api.jouwdomein.nl"
-     data-return-url="https://jouw-wordpress-site.nl/fietsen/">
-
-  <div class="vp-embed-toolbar">
-    <div>
-      <span class="vp-embed-badge">Voorraad</span>
-      <h2 class="vp-embed-title">Actuele voorraad</h2>
-    </div>
-
-    <div class="vp-embed-filters">
-      <button class="vp-embed-filter active" data-filter="all">Alle fietsen</button>
-      <button class="vp-embed-filter" data-filter="used">Gebruikt</button>
-      <button class="vp-embed-filter" data-filter="new">Nieuw</button>
-    </div>
-  </div>
-
-  <div id="vp-embed-root">Voorraad laden...</div>
-</div>
-```
 
 ### Script
 
