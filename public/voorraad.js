@@ -1,21 +1,13 @@
 (function() {
   const grid = document.getElementById('grid');
   const buttons = document.querySelectorAll('.filter-btn');
-  let currentType = 'all';
-  let allBikes = [];
+  let current = 'all';
+  let all = [];
 
-  function render() {
-    const bikes = currentType === 'all' ? allBikes : allBikes.filter(b => b.state === currentType);
-    if (!bikes.length) {
-      grid.innerHTML = '<div class="card" style="padding:20px">Geen fietsen gevonden.</div>';
-      return;
-    }
-
-    grid.innerHTML = bikes.map(f => `
+  function card(f) {
+    return `
       <article class="bike-card">
-        <div class="bike-image">
-          <img src="${f.image}" alt="${f.title}" loading="lazy">
-        </div>
+        <div class="bike-image"><img src="${f.image}" alt="${f.title}" loading="lazy"></div>
         <div class="bike-content">
           <span class="badge">${f.stateLabel}</span>
           <h2 class="bike-title">${f.title}</h2>
@@ -24,25 +16,29 @@
           <a class="btn btn-primary" href="${f.url}">Bekijken</a>
         </div>
       </article>
-    `).join('');
+    `;
   }
 
-  fetch('/api/fietsen')
+  function render() {
+    let items = all;
+    if (current !== 'all') items = items.filter(x => x.state === current);
+    grid.innerHTML = items.length ? items.map(card).join('') : '<div class="card empty-card">Geen fietsen gevonden.</div>';
+  }
+
+  fetch('/api/fietsen?refresh=1')
     .then(r => r.json())
     .then(data => {
-      allBikes = Array.isArray(data.fietsen) ? data.fietsen : [];
+      all = Array.isArray(data.fietsen) ? data.fietsen : [];
       render();
     })
     .catch(() => {
-      grid.innerHTML = '<div class="card" style="padding:20px">Fietsen konden niet worden geladen.</div>';
+      grid.innerHTML = '<div class="card empty-card">Fietsen konden niet worden geladen.</div>';
     });
 
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentType = btn.dataset.type;
-      render();
-    });
-  });
+  buttons.forEach(btn => btn.addEventListener('click', () => {
+    buttons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    current = btn.dataset.type;
+    render();
+  }));
 })();

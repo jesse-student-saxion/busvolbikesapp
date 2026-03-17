@@ -1,17 +1,14 @@
-# Bus vol Bikes v9 stable
-
-## Starten
 npm install
 npm start
 
-## Routes
+Routes:
 - /voorraad
-- /api/fietsen
+- /api/fietsen?refresh=1
 - /api/fietsen.xml
-- /api/health
 - /fiets/:id
+- /embed.js
 
-## WordPress embed
+WordPress:
 <div id="bvb-voorraad"></div>
 <script>
 window.BVB_API_BASE = 'https://api.busvolbikes.nl';
