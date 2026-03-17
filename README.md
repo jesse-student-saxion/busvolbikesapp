@@ -1,419 +1,238 @@
-# Voorraadportaal
+# Voorraadportaal v17
 
-Een white-label voorraadportaal voor het ophalen en tonen van fietsvoorraad via scraping.  
-Geschikt voor integratie in websites zoals WordPress.
+Ontwikkelaar: **Jesse van Mullem**  
+Bedrijf: **Je-Ma ICT Beheer**
 
----
+## Overzicht
+Dit project is een white-label voorraadportaal voor een externe voorraadbron.  
+De applicatie haalt items op uit categorie-overzichten, bezoekt daarna per item de detailpagina en bouwt daaruit een eigen API, detailpagina's en een embed-script.
 
-## Features
+De zichtbare teksten zijn bewust algemeen gehouden zodat het portaal ook voor andere websites of klanten gebruikt kan worden.
 
-- Live scraping van externe voorraadbron
-- Detailpagina per item
-- Afbeelding proxy (betrouwbare images)
-- Prijs parsing (ook bij slechte HTML)
-- Caching voor performance
-- WordPress embed (standaard + filters)
-- Mobile friendly UI
-- Volledig white-label
+## Wat de applicatie doet
+De server doet in hoofdlijnen het volgende:
 
----
+1. Leest de overzichtspagina's voor gebruikte en nieuwe voorraad.
+2. Vindt op die pagina's de detail-links en bewaart per item het ID en de titel.
+3. Bezoekt daarna elke detailpagina.
+4. Leest uit de detailpagina velden zoals:
+   - titel
+   - prijs
+   - soort
+   - kleur
+   - maat
+   - wielmaat
+   - gewicht
+   - modeljaar
+   - bijzonderheden
+   - artikelnummer
+   - garantie
+   - status
+5. Biedt de verzamelde gegevens aan via:
+   - JSON API
+   - XML feed
+   - detailpagina's
+   - een WordPress-embed
 
-## Installatie
+## Waarom dit zo is gebouwd
+De externe bron biedt de gegevens niet direct in een nette, stabiele JSON-API aan.  
+Daarom verzamelt dit project de gegevens via de HTML-overzichten en detailpagina's, en zet het ze daarna om naar een eigen, bruikbare structuur.
+
+## Belangrijkste routes
+
+### Frontend
+- `/`  
+  Startpagina
+
+- `/voorraad`  
+  Overzichtspagina met kaarten en filters
+
+- `/fiets/:id`  
+  Detailpagina voor één item
+
+### API
+- `/api/fietsen`  
+  JSON feed met alle items
+
+- `/api/fietsen?refresh=1`  
+  Zelfde feed, maar geforceerd opnieuw ophalen
+
+- `/api/fietsen.xml`  
+  XML feed
+
+- `/api/fietsen.xml?refresh=1`  
+  XML feed met geforceerde refresh
+
+- `/api/health`  
+  Simpele healthcheck
+
+### Media
+- `/image/:id`  
+  Proxy voor itemafbeeldingen
+
+### Embed
+- `/embed.js`  
+  Script voor externe websites, bijvoorbeeld WordPress
+
+## Caching
+De server gebruikt caching om de bron niet bij elke aanvraag opnieuw volledig op te halen.
+
+- Cacheduur: **10 minuten**
+- Met `?refresh=1` kan handmatig een verse update worden afgedwongen.
+
+## WordPress embed
+Gebruik in een Custom HTML blok:
+
+```html
+<div id="bvb-voorraad"></div>
+<script>
+window.BVB_API_BASE = 'https://jouwdomein.nl';
+</script>
+<script src="https://jouwdomein.nl/embed.js"></script>
+```
+
+Je kunt ook een class gebruiken:
+
+```html
+<div class="busvolbikes-voorraad" data-type="all"></div>
+<script>
+window.BVB_API_BASE = 'https://jouwdomein.nl';
+</script>
+<script src="https://jouwdomein.nl/embed.js"></script>
+```
+
+Beschikbare `data-type` waarden:
+- `all`
+- `used`
+- `new`
+
+## Installatie lokaal
 
 ```bash
 npm install
-node server.js
+npm start
 ```
 
-Standaard draait de server op:
+Daarna openen:
+- `http://localhost:3000/`
+- `http://localhost:3000/voorraad`
+- `http://localhost:3000/api/fietsen?refresh=1`
 
-```
-http://localhost:3000
-```
+## Deploy
+De applicatie is geschikt voor Node.js hosting, bijvoorbeeld Railway.
 
----
+### Basisstappen
+1. Upload de projectbestanden naar een Git-repository.
+2. Koppel de repository aan je hostingplatform.
+3. Laat het platform `npm install` en `npm start` uitvoeren.
+4. Controleer na deploy:
+   - `/api/health`
+   - `/api/fietsen?refresh=1`
+   - `/voorraad`
 
-## API
+## Bestandsstructuur
+- `server.js`  
+  Express-server, scraping, parsing, caching, API-routes en detailpagina's
 
-### Alle fietsen
+- `public/index.html`  
+  Startpagina
 
-```
-/api/fietsen
-```
+- `public/voorraad.html`  
+  Overzichtspagina
 
-### Force refresh (aanrader bij testen)
+- `public/voorraad.js`  
+  Frontend-logica voor laden en filteren
 
-```
-/api/fietsen?refresh=1
-```
+- `public/styles.css`  
+  Styling voor overzicht en detailpagina's
 
-### Handmatige refresh trigger
+- `package.json`  
+  Dependencies en startscript
 
-```
-/api/refresh
-```
+## Dependencies
+- `express` voor de webserver
+- `axios` voor HTTP-requests
+- `cheerio` voor HTML parsing
+- `cors` voor externe embeds
 
----
+## Onderhoud
+Bij wijzigingen in de structuur van de bronwebsite kunnen selectors of parsing-regels aangepast moeten worden.  
+De kans daarop is het grootst bij:
+- detailvelden
+- prijsopmaak
+- afbeelding-wrapper
+- overzichtstitels
 
-## Detailpagina
+## Notities
+- De applicatie gebruikt white-label teksten in de frontend.
+- De data blijft afkomstig uit de externe bron.
+- Het embed-script is bruikbaar op externe websites zonder dat de volledige frontend hoeft te worden ingebouwd.
 
-```
-/fiets/:id
-```
-
----
-
-## Terugnavigatie (WordPress fix)
-
-De detailpagina ondersteunt een return parameter:
-
-```
-/fiets/ID?return=https://jouwsite.nl/fietsen/
-```
-
-Hierdoor werkt de terugknop correct wanneer je vanuit WordPress komt.
-
----
-
-## WordPress Embed (standaard)
-
-Gebruik deze voor een snelle integratie:
-
-```html
-<div id="voorraad-root"></div>
-<script src="https://api.jouwdomein.nl/embed.js"></script>
-```
-
----
-
-## WordPress Embed (met filters)
-
-Deze variant bevat filters voor:
-
-- Alle
-- Gebruikt
-- Nieuw
-
-
-
-### Script
-
-```html
-<style>
-.vp-embed-wrap{
-  max-width:1280px;
-  margin:0 auto;
-  padding:24px 16px 40px;
-  background:#f4f6fb;
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  color:#101828;
-}
-.vp-embed-toolbar{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-end;
-  gap:16px;
-  margin-bottom:22px;
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:24px;
-  padding:24px;
-  box-shadow:0 8px 28px rgba(16,24,40,.05);
-}
-.vp-embed-badge{
-  display:inline-flex;
-  padding:10px 16px;
-  border-radius:999px;
-  background:#e9f7f0;
-  color:#21795f;
-  font-weight:800;
-  font-size:14px;
-}
-.vp-embed-title{
-  margin:12px 0 0;
-  font-size:clamp(26px,4vw,40px);
-  line-height:1.05;
-  color:#0f172a;
-}
-.vp-embed-filters{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-.vp-embed-filter{
-  padding:12px 16px;
-  border-radius:14px;
-  border:1px solid #e5e7eb;
-  background:#fff;
-  font-weight:800;
-  color:#101828;
-  cursor:pointer;
-}
-.vp-embed-filter.active{
-  background:#08194d;
-  color:#fff;
-  border-color:#08194d;
-}
-.vp-embed-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(290px,1fr));
-  gap:22px;
-}
-.vp-embed-card{
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:26px;
-  overflow:hidden;
-  box-shadow:0 10px 28px rgba(16,24,40,.06);
-}
-.vp-embed-image{
-  height:250px;
-  background:#f7f8fa;
-  padding:16px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  overflow:hidden;
-}
-.vp-embed-image img{
-  width:100%;
-  height:100%;
-  object-fit:contain;
-  display:block;
-}
-.vp-embed-content{
-  padding:20px;
-}
-.vp-embed-card-title{
-  font-size:20px;
-  line-height:1.25;
-  margin:12px 0 8px;
-  color:#0f172a;
-  min-height:50px;
-}
-.vp-embed-meta{
-  color:#667085;
-  font-size:15px;
-  line-height:1.5;
-  min-height:44px;
-  margin-bottom:16px;
-}
-.vp-embed-price{
-  font-size:clamp(30px,4vw,46px);
-  line-height:1;
-  font-weight:900;
-  color:#12806a;
-  margin-bottom:18px;
-}
-.vp-embed-btn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:14px 18px;
-  border-radius:16px;
-  text-decoration:none !important;
-  font-weight:800;
-  background:#08194d;
-  color:#fff !important;
-}
-.vp-embed-state{
-  display:inline-flex;
-  padding:10px 16px;
-  border-radius:999px;
-  background:#e9f7f0;
-  color:#21795f;
-  font-weight:800;
-  font-size:14px;
-}
-.vp-embed-empty,
-.vp-embed-loading,
-.vp-embed-error{
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:24px;
-  padding:24px;
-}
-@media (max-width:920px){
-  .vp-embed-toolbar{
-    flex-direction:column;
-    align-items:flex-start;
-  }
-}
-@media (max-width:640px){
-  .vp-embed-wrap{
-    padding:14px 12px 28px;
-  }
-  .vp-embed-toolbar,
-  .vp-embed-content{
-    padding:18px;
-  }
-  .vp-embed-grid{
-    grid-template-columns:1fr;
-  }
-  .vp-embed-image{
-    height:220px;
-  }
-  .vp-embed-card-title{
-    min-height:0;
-  }
-}
-</style>
-
-<div class="vp-embed-wrap" data-api-base="https://api.busvolbikes.nl" data-return-url="https://busvolbikes.nl/aanbod-fietsen/">
-  <div class="vp-embed-toolbar">
-    <div>
-      <span class="vp-embed-badge">Voorraad</span>
-      <h2 class="vp-embed-title">Actuele voorraad</h2>
-    </div>
-
-    <div class="vp-embed-filters">
-      <button class="vp-embed-filter active" data-filter="all">Alle fietsen</button>
-      <button class="vp-embed-filter" data-filter="used">Gebruikt</button>
-      <button class="vp-embed-filter" data-filter="new">Nieuw</button>
-    </div>
-  </div>
-
-  <div id="vp-embed-root" class="vp-embed-loading">Voorraad laden...</div>
-</div>
-
-<script>
-(function () {
-  var wrap = document.querySelector('.vp-embed-wrap');
-  if (!wrap) return;
-
-  var apiBase = wrap.getAttribute('data-api-base') || 'https://api.busvolbikes.nl';
-  var returnUrl = wrap.getAttribute('data-return-url') || window.location.href;
-  var root = document.getElementById('vp-embed-root');
-  var filterButtons = wrap.querySelectorAll('.vp-embed-filter');
-
-  var allItems = [];
-  var currentFilter = 'all';
-
-  function esc(v) {
-    return String(v || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function getFilteredItems() {
-    if (currentFilter === 'all') return allItems;
-    return allItems.filter(function (item) {
-      return item.state === currentFilter;
-    });
-  }
-
-  function render() {
-    var items = getFilteredItems();
-
-    if (!items.length) {
-      root.className = 'vp-embed-empty';
-      root.innerHTML = 'Geen fietsen gevonden voor dit filter.';
-      return;
-    }
-
-    root.className = 'vp-embed-grid';
-    root.innerHTML = items.map(function (item) {
-      var specs = Array.isArray(item.specs) ? item.specs.slice(0, 2).join(' • ') : '';
-      var detailUrl = apiBase + item.url + '?return=' + encodeURIComponent(returnUrl);
-
-      return '' +
-        '<article class="vp-embed-card">' +
-          '<div class="vp-embed-image">' +
-            '<img src="' + esc(apiBase + item.image) + '" alt="' + esc(item.title) + '" loading="lazy">' +
-          '</div>' +
-          '<div class="vp-embed-content">' +
-            '<span class="vp-embed-state">' + esc(item.stateLabel || '') + '</span>' +
-            '<h3 class="vp-embed-card-title">' + esc(item.title || '') + '</h3>' +
-            '<div class="vp-embed-meta">' + esc(specs) + '</div>' +
-            '<div class="vp-embed-price">' + esc(item.price || '') + '</div>' +
-            '<a class="vp-embed-btn" href="' + esc(detailUrl) + '">Bekijken</a>' +
-          '</div>' +
-        '</article>';
-    }).join('');
-  }
-
-  filterButtons.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      filterButtons.forEach(function (b) {
-        b.classList.remove('active');
-      });
-      btn.classList.add('active');
-      currentFilter = btn.getAttribute('data-filter') || 'all';
-      render();
-    });
-  });
-
-  fetch(apiBase + '/api/fietsen?refresh=1')
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      allItems = Array.isArray(data.fietsen) ? data.fietsen : [];
-      render();
-    })
-    .catch(function () {
-      root.className = 'vp-embed-error';
-      root.innerHTML = 'Voorraad kon niet worden geladen.';
-    });
-})();
-</script>
-```
-
----
-
-## Werking
-
-1. API haalt lijstpagina op
-2. Data wordt geparsed (titel, prijs, image, detail)
-3. Detailpagina wordt extra gescraped
-4. Data wordt gecached
-5. Frontend of embed gebruikt JSON output
-
----
-
-## Cache
-
-Standaard:
-
-```js
-const CACHE_TIME = 1000 * 60 * 5;
-```
-
-Force refresh:
-
-```
-/api/fietsen?refresh=1
-```
-
----
-
-## Ontwikkelaar
-
-Jesse van Mullem  
-Je-Ma ICT Beheer
-
----
 
 ## Changelog
 
 ### v18
-- Return URL support toegevoegd
-- WordPress terugknop fix
-- Embed met filters toegevoegd
-- README uitgebreid
+- Terugknop op de detailpagina ondersteunt nu een `return` queryparameter.
+- Overzichtspagina en embed voegen automatisch de huidige WordPress-URL toe als return-URL.
+- Gebruikers keren daardoor vanaf de detailpagina weer terug naar de WordPress-pagina in plaats van naar het portaal zelf.
+- README aangevuld met uitleg over de terugnavigatie.
 
 ### v17
-- Detailpagina styling verbeterd
-- White-label teksten toegevoegd
+- Detailtitel en prijs op detailpagina kleiner gemaakt.
+- White-label teksten toegepast in de zichtbare interface.
+- README sterk uitgebreid met uitleg, routes, embed en onderhoudsinformatie.
 
 ### v16
-- Prijs parsing verbeterd
+- Prijsnormalisatie toegevoegd voor kapotte euro-symbolen.
+- Extra detectie van prijsregels zonder correct euroteken.
 
 ### v15
-- Extra prijs detectie
+- Prijsdetectie uitgebreid via `th/td`, `td`, bold tekst en body text.
 
 ### v14
-- Image proxy verbeterd
+- Afbeelding-proxy verbeterd via wrapper HTML naar echte `<img>` bron.
 
-### v13 en lager
-- Basis scraping, API en layout opgebouwd
+### v13
+- Titel uit lijstpagina behouden.
+- Afbeelding-proxy teruggebracht als `/image/:id`.
+
+### v12
+- Detailvelden via tabel-rijen uitgelezen.
+- Directe afbeeldings-URL als bron gebruikt.
+
+### v11
+- Regex-gebaseerde detailparser en image proxy verbeterd.
+
+### v10
+- Layout en detailpresentatie opgeschoond.
+
+### v9
+- Caching en stabielere detailpagina toegevoegd.
+
+### v8
+- Eerste detailpagina en prijsparser toegevoegd.
+
+### v7
+- Detail scraping geïntroduceerd.
+
+### v6
+- HTML als hoofdbron gebruikt in plaats van XML.
+
+### v5
+- Eerste XML-verwerking en basis-API opgezet.
+
+### v4 en lager
+- Prototypefase met experimenten rond scraping, XML, layouts en hosting.
+
+## Terugnavigatie vanaf detailpagina
+De detailpagina ondersteunt een queryparameter:
+
+- `return`
+
+Voorbeeld:
+
+```text
+https://jouwdomein.nl/fiets/BIKEID?return=https%3A%2F%2Fjewordpresssite.nl%2Ffietsen%2F
+```
+
+De embed en overzichtspagina voegen deze parameter automatisch toe met de huidige pagina-URL. Daardoor werkt de knop **Terug** ook correct wanneer de gebruiker vanuit WordPress naar een detailpagina gaat.
