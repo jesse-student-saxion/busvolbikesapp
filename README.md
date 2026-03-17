@@ -167,3 +167,72 @@ De kans daarop is het grootst bij:
 - De applicatie gebruikt white-label teksten in de frontend.
 - De data blijft afkomstig uit de externe bron.
 - Het embed-script is bruikbaar op externe websites zonder dat de volledige frontend hoeft te worden ingebouwd.
+
+
+## Changelog
+
+### v18
+- Terugknop op de detailpagina ondersteunt nu een `return` queryparameter.
+- Overzichtspagina en embed voegen automatisch de huidige WordPress-URL toe als return-URL.
+- Gebruikers keren daardoor vanaf de detailpagina weer terug naar de WordPress-pagina in plaats van naar het portaal zelf.
+- README aangevuld met uitleg over de terugnavigatie.
+
+### v17
+- Detailtitel en prijs op detailpagina kleiner gemaakt.
+- White-label teksten toegepast in de zichtbare interface.
+- README sterk uitgebreid met uitleg, routes, embed en onderhoudsinformatie.
+
+### v16
+- Prijsnormalisatie toegevoegd voor kapotte euro-symbolen.
+- Extra detectie van prijsregels zonder correct euroteken.
+
+### v15
+- Prijsdetectie uitgebreid via `th/td`, `td`, bold tekst en body text.
+
+### v14
+- Afbeelding-proxy verbeterd via wrapper HTML naar echte `<img>` bron.
+
+### v13
+- Titel uit lijstpagina behouden.
+- Afbeelding-proxy teruggebracht als `/image/:id`.
+
+### v12
+- Detailvelden via tabel-rijen uitgelezen.
+- Directe afbeeldings-URL als bron gebruikt.
+
+### v11
+- Regex-gebaseerde detailparser en image proxy verbeterd.
+
+### v10
+- Layout en detailpresentatie opgeschoond.
+
+### v9
+- Caching en stabielere detailpagina toegevoegd.
+
+### v8
+- Eerste detailpagina en prijsparser toegevoegd.
+
+### v7
+- Detail scraping geïntroduceerd.
+
+### v6
+- HTML als hoofdbron gebruikt in plaats van XML.
+
+### v5
+- Eerste XML-verwerking en basis-API opgezet.
+
+### v4 en lager
+- Prototypefase met experimenten rond scraping, XML, layouts en hosting.
+
+## Terugnavigatie vanaf detailpagina
+De detailpagina ondersteunt een queryparameter:
+
+- `return`
+
+Voorbeeld:
+
+```text
+https://jouwdomein.nl/fiets/BIKEID?return=https%3A%2F%2Fjewordpresssite.nl%2Ffietsen%2F
+```
+
+De embed en overzichtspagina voegen deze parameter automatisch toe met de huidige pagina-URL. Daardoor werkt de knop **Terug** ook correct wanneer de gebruiker vanuit WordPress naar een detailpagina gaat.

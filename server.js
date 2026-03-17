@@ -371,6 +371,7 @@ app.get('/api/health', (req, res) => {
 app.get('/fiets/:id', async (req, res) => {
   try {
     const bikeId = req.params.id;
+    const returnUrl = req.query.return || '/voorraad';
     const fietsen = await getFietsen(false);
     const item = fietsen.find(f => f.id === bikeId);
 
@@ -402,7 +403,7 @@ app.get('/fiets/:id', async (req, res) => {
 </head>
 <body>
 <main class="page detail-shell">
-<a class="back-link" href="/voorraad">← Terug naar voorraad</a>
+<a class="back-link" href="${returnUrl}">← Terug naar voorraad</a>
 <section class="detail-layout">
   <div class="detail-photo card">
     <div class="detail-photo-wrap">
@@ -416,7 +417,7 @@ app.get('/fiets/:id', async (req, res) => {
     <div class="spec-list">${rows || '<div class="spec-row"><span>Info</span><strong>Geen details gevonden</strong></div>'}</div>
     <div class="detail-actions">
       <a class="btn btn-primary" href="${item.detailUrl}" target="_blank" rel="noopener noreferrer">Externe pagina</a>
-      <a class="btn btn-secondary" href="/voorraad">Terug</a>
+      <a class="btn btn-secondary" href="${returnUrl}">Terug</a>
     </div>
   </div>
 </section>
@@ -443,7 +444,7 @@ app.get('/embed.js', (req, res) => {
       '<h3 style="margin:0 0 8px;font-size:19px;line-height:1.3;color:#0f172a">' + esc(f.title) + '</h3>' +
       '<div style="color:#64748b;min-height:42px;margin-bottom:14px">' + esc((f.specs||[]).slice(0,2).join(' • ')) + '</div>' +
       '<div style="font-size:36px;font-weight:900;line-height:1;color:#0f8a7d;margin-bottom:18px">' + esc(f.price) + '</div>' +
-      '<a href="' + esc(API_BASE + f.url) + '" style="display:inline-flex;background:#08194d;color:#fff;text-decoration:none;padding:12px 16px;border-radius:14px;font-weight:800">Bekijken</a></div></article>';
+      '<a href="' + esc(API_BASE + f.url + '?return=' + encodeURIComponent(window.location.href)) + '" style="display:inline-flex;background:#08194d;color:#fff;text-decoration:none;padding:12px 16px;border-radius:14px;font-weight:800">Bekijken</a></div></article>';
     }).join('') + '</div>';
   }
   function mount(el){

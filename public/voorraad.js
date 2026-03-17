@@ -13,7 +13,7 @@
           <h2 class="bike-title">${f.title}</h2>
           <div class="bike-meta">${(f.specs || []).slice(0,2).join(' • ')}</div>
           <div class="bike-price">${f.price}</div>
-          <a class="btn btn-primary" href="${f.url}">Bekijken</a>
+          <a class="btn btn-primary" href="${f.url}?return=${encodeURIComponent(window.location.href)}">Bekijken</a>
         </div>
       </article>
     `;
