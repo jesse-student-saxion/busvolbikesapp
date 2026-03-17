@@ -1,9 +1,13 @@
 {
   "name": "busvolbikes-app",
   "version": "1.0.0",
+  "description": "Bus vol Bikes voorraad app using Fietsenwijk HTML detail pages",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "axios": "^1.13.1",

@@ -1,10 +1,9 @@
-(async function () {
+(function () {
   const grid = document.getElementById('grid');
-  const countBox = document.getElementById('countBox');
-  const updateBox = document.getElementById('updateBox');
-  const buttons = Array.from(document.querySelectorAll('.filter'));
-  let fietsen = [];
-  let currentType = 'all';
+  const meta = document.getElementById('meta');
+  const buttons = document.querySelectorAll('.filter');
+  let all = [];
+  let active = 'all';
 
   function esc(v) {
     return String(v || '')
@@ -15,55 +14,49 @@
   }
 
   function render() {
-    let list = fietsen;
-    if (currentType !== 'all') list = fietsen.filter((fiets) => fiets.state === currentType);
+    let items = all;
+    if (active !== 'all') items = all.filter((f) => f.state === active);
 
-    countBox.textContent = list.length + ' fietsen';
-
-    if (!list.length) {
-      grid.className = 'grid-state empty';
-      grid.innerHTML = 'Geen fietsen gevonden.';
+    meta.textContent = items.length + ' fietsen zichtbaar';
+    if (!items.length) {
+      grid.innerHTML = '<div>Geen fietsen gevonden.</div>';
       return;
     }
 
-    grid.className = 'grid-state';
-    grid.innerHTML = list.map((fiets) => `
+    grid.innerHTML = items.map((f) => `
       <article class="card">
-        <div class="card-image"><img src="${esc(fiets.image)}" alt="${esc(fiets.title)}" loading="lazy"></div>
+        <div class="card-img"><img src="${esc(f.image)}" alt="${esc(f.title)}" loading="lazy"></div>
         <div class="card-body">
-          <span class="chip">${esc(fiets.stateLabel)}</span>
-          <h2 class="card-title">${esc(fiets.title)}</h2>
-          <div class="card-specs">${esc((fiets.specs || []).join(' • '))}</div>
-          <div class="card-footer">
-            <div class="card-price">${esc(fiets.price)}</div>
-            <a class="card-link" href="${esc(fiets.url)}">Bekijk</a>
+          <div class="badge">${esc(f.stateLabel)}</div>
+          <h3 class="title">${esc(f.title)}</h3>
+          <div class="specs">${esc([f.maat, f.kleur, f.modeljaar].filter(Boolean).join(' • '))}</div>
+          <div class="bottom">
+            <div class="price">${esc(f.price)}</div>
+            <a class="view" href="${esc(f.url)}">Bekijken</a>
           </div>
         </div>
       </article>
     `).join('');
   }
 
+  fetch('/api/fietsen')
+    .then((r) => r.json())
+    .then((data) => {
+      all = Array.isArray(data.fietsen) ? data.fietsen : [];
+      render();
+    })
+    .catch((err) => {
+      console.error(err);
+      meta.textContent = 'Kon voorraad niet laden';
+      grid.innerHTML = '<div>Fietsen konden niet worden geladen.</div>';
+    });
+
   buttons.forEach((btn) => {
     btn.addEventListener('click', () => {
       buttons.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      currentType = btn.dataset.type;
+      active = btn.dataset.filter;
       render();
     });
   });
-
-  try {
-    const response = await fetch('/api/fietsen');
-    const data = await response.json();
-    fietsen = Array.isArray(data.fietsen) ? data.fietsen : [];
-    if (data.laatsteUpdate) {
-      const d = new Date(data.laatsteUpdate);
-      updateBox.textContent = 'Laatst bijgewerkt: ' + d.toLocaleString('nl-NL');
-    }
-    render();
-  } catch (err) {
-    grid.className = 'grid-state empty';
-    grid.textContent = 'Fietsen konden niet worden geladen.';
-    countBox.textContent = 'Fout';
-  }
 })();
