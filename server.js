@@ -48,6 +48,35 @@ function cleanText(value) {
     .trim();
 }
 
+function normalizePriceText(value) {
+  return String(value || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[€￠¤]/g, '€')
+    .replace(/[■▓�]/g, '€')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPriceFromText(value) {
+  const text = normalizePriceText(value);
+
+  const patterns = [
+    /Prijs\s*:\s*€?\s*([\d\.\,]+(?:,-)?)/i,
+    /€\s*([\d\.\,]+(?:,-)?)/i,
+    /\b([\d]{1,3}(?:\.[\d]{3})*(?:,\d{2})?(?:,-)?)\b/
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return `€ ${match[1].trim()}`;
+    }
+  }
+
+  return 'Prijs op aanvraag';
+}
+
 function getBikeId(url) {
   try {
     return new URL(url).searchParams.get('b');
@@ -148,12 +177,12 @@ function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   const garantie = getCellValue($, 'Garantie');
   const status = getCellValue($, 'Status');
 
-  const bodyText = cleanText($('body').text());
+  const bodyText = normalizePriceText($('body').text());
 
   const prijsCandidates = [
     getRowValue($, 'Prijs'),
     getCellValue($, 'Prijs'),
-    cleanText($('strong, b').filter((_, el) => /€/.test($(el).text())).first().text()),
+    cleanText($('strong, b').filter((_, el) => /prijs|€|[0-9]\.[0-9]{3}/i.test($(el).text())).first().text()),
     cleanText($('*').filter((_, el) => /Prijs\s*:/.test($(el).text())).first().text()),
     bodyText
   ].filter(Boolean);
@@ -161,9 +190,9 @@ function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   let prijs = 'Prijs op aanvraag';
 
   for (const candidate of prijsCandidates) {
-    const match = String(candidate).match(/€\s?[\d\.\,]+(?:,-)?/);
-    if (match) {
-      prijs = cleanText(match[0]);
+    const found = extractPriceFromText(candidate);
+    if (found !== 'Prijs op aanvraag') {
+      prijs = found;
       break;
     }
   }

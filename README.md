@@ -20,3 +20,7 @@ window.BVB_API_BASE = 'https://api.busvolbikes.nl';
 
 v15:
 - extra prijsdetectie via th/td rij, bold tekst en body fallback
+
+
+v16:
+- prijsnormalisatie voor kapotte euro-tekens en prijsregels zonder echt euro-symbool
