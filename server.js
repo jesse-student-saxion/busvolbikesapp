@@ -7,58 +7,29 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const SHOP_BASE = 'https://d40972d3c78b4bc6a44e816ede6281cc.hst.fietsenwijk.nl';
-const USED_URL = `${SHOP_BASE}/fietsen/?cat=1`;
-const NEW_URL = `${SHOP_BASE}/fietsen/?cat=2`;
-const CACHE_MS = 10 * 60 * 1000;
-
-let cache = {
-  all: null,
-  used: null,
-  fresh: null,
-  fetchedAt: 0
-};
+const BASE = 'https://d40972d3c78b4bc6a44e816ede6281cc.hst.fietsenwijk.nl';
+const USED_URL = `${BASE}/fietsen/?cat=1`;
+const NEW_URL = `${BASE}/fietsen/?cat=2`;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 app.use(cors({ origin: '*', methods: ['GET'] }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+let fietsenCache = {
+  timestamp: 0,
+  data: null
+};
+
 function cleanText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function escapeXml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-function getBikeIdFromUrl(url) {
-  try {
-    const u = new URL(url, SHOP_BASE);
-    return u.searchParams.get('b');
-  } catch (_) {
-    return null;
+function decodeHtmlBuffer(buf) {
+  let html = Buffer.from(buf).toString('utf8');
+  if (html.includes('�')) {
+    html = Buffer.from(buf).toString('latin1');
   }
-}
-
-function buildRawDetailUrl(bikeId) {
-  return `${SHOP_BASE}/fietsen/detail/?b=${bikeId}`;
-}
-
-function buildImageUrl(bikeId) {
-  return `${SHOP_BASE}/fietsen/detail/images/?b=${bikeId}&css=/css/default.css`;
+  return html;
 }
 
 async function fetchHtml(url) {
@@ -71,7 +42,24 @@ async function fetchHtml(url) {
     }
   });
 
-  return Buffer.from(response.data).toString('utf8');
+  return decodeHtmlBuffer(response.data);
+}
+
+function getBikeId(url) {
+  try {
+    const u = new URL(url);
+    return u.searchParams.get('b');
+  } catch {
+    return null;
+  }
+}
+
+function buildDetailUrl(bikeId) {
+  return `${BASE}/fietsen/detail/?b=${bikeId}`;
+}
+
+function buildImageUrl(bikeId) {
+  return `${BASE}/fietsen/detail/images/?b=${bikeId}&css=/css/default.css`;
 }
 
 async function fetchListBikeIds(listUrl) {
@@ -82,66 +70,71 @@ async function fetchListBikeIds(listUrl) {
   $('a[href*="/fietsen/detail/"]').each((_, el) => {
     const href = $(el).attr('href');
     if (!href) return;
-    const bikeId = getBikeIdFromUrl(href);
+    const fullUrl = new URL(href, BASE).href;
+    const bikeId = getBikeId(fullUrl);
     if (bikeId) ids.add(bikeId);
   });
 
   return [...ids];
 }
 
-function firstMatch(text, regex) {
-  const match = text.match(regex);
-  return match ? cleanText(match[1] || match[0]) : '';
+function extractLineValue(pageText, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`${escaped}\\s*:\\s*([^\\n\\r]+)`, 'i');
+  const match = pageText.match(regex);
+  return match ? cleanText(match[1]) : '';
 }
 
 function parseDetailPage(html, bikeId, state) {
   const $ = cheerio.load(html);
-  const rootText = cleanText($.root().text());
-  const title = cleanText($('h1, h2, h3').first().text()) || 'Onbekende fiets';
+  const pageText = cleanText($('body').text().replace(/\s{2,}/g, ' '));
 
-  const soort = firstMatch(rootText, /Soort:\s*(.*?)\s*(?:Kleur:|Maat:|Wielmaat:|Modeljaar:|Bijzonderheden:|Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const kleur = firstMatch(rootText, /Kleur:\s*(.*?)\s*(?:Maat:|Wielmaat:|Modeljaar:|Bijzonderheden:|Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const maat = firstMatch(rootText, /Maat:\s*(.*?)\s*(?:Wielmaat:|Modeljaar:|Bijzonderheden:|Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const wielmaat = firstMatch(rootText, /Wielmaat:\s*(.*?)\s*(?:Modeljaar:|Bijzonderheden:|Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const modeljaar = firstMatch(rootText, /Modeljaar:\s*(.*?)\s*(?:Bijzonderheden:|Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const bijzonderheden = firstMatch(rootText, /Bijzonderheden:\s*(.*?)\s*(?:Art\. nummer:|Garantie:|Prijs:|Status:|Terug)/i);
-  const artikelnummer = firstMatch(rootText, /Art\. nummer:\s*(.*?)\s*(?:Garantie:|Prijs:|Status:|Terug)/i);
-  const garantie = firstMatch(rootText, /Garantie:\s*(.*?)\s*(?:Prijs:|Status:|Terug)/i);
-  const status = firstMatch(rootText, /Status:\s*(.*?)\s*(?:Terug|$)/i);
+  let title =
+    cleanText($('h1').first().text()) ||
+    cleanText($('h2').first().text()) ||
+    '';
 
-  let price = '';
-  const prijsBlock = rootText.match(/Prijs:\s*(€\s?[\d\.,]+(?:,-)?)/i);
-  const euroAny = rootText.match(/(€\s?[\d\.,]+(?:,-)?)/i);
-  if (prijsBlock) price = cleanText(prijsBlock[1]);
-  else if (euroAny) price = cleanText(euroAny[1]);
-  if (!price) price = 'Prijs op aanvraag';
+  if (!title || /terug/i.test(title)) {
+    const titleMatch = pageText.match(/^([A-Za-z0-9À-ÿ][A-Za-z0-9À-ÿ \-+\/().']{3,120})\s+Soort:/);
+    if (titleMatch) title = cleanText(titleMatch[1]);
+  }
 
-  const specs = [maat, kleur, wielmaat, modeljaar].filter(Boolean);
+  const priceMatch =
+    pageText.match(/Prijs\s*:\s*€\s?[\d\.\,]+(?:,-)?/i) ||
+    pageText.match(/€\s?[\d\.\,]+(?:,-)?/i);
+
+  const soort = extractLineValue(pageText, 'Soort');
+  const kleur = extractLineValue(pageText, 'Kleur');
+  const maat = extractLineValue(pageText, 'Maat');
+  const wielmaat = extractLineValue(pageText, 'Wielmaat');
+  const modeljaar = extractLineValue(pageText, 'Modeljaar');
+  const status = extractLineValue(pageText, 'Status');
+  const garantie = extractLineValue(pageText, 'Garantie');
+  const artNummer = extractLineValue(pageText, 'Art. nummer');
 
   return {
     id: bikeId,
-    title,
+    title: title || 'Onbekende fiets',
     state,
     stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price,
+    price: priceMatch ? cleanText(priceMatch[0].replace(/Prijs\s*:\s*/i, '')) : 'Prijs op aanvraag',
     image: buildImageUrl(bikeId),
     url: `/fiets/${bikeId}`,
-    detailUrl: buildRawDetailUrl(bikeId),
+    detailUrl: buildDetailUrl(bikeId),
     soort,
     kleur,
     maat,
     wielmaat,
     modeljaar,
-    bijzonderheden,
-    artikelnummer,
-    garantie,
     status,
-    specs
+    garantie,
+    artNummer,
+    specs: [maat, kleur, wielmaat, modeljaar, status].filter(Boolean)
   };
 }
 
 async function fetchBikeDetails(bikeId, state) {
-  const html = await fetchHtml(buildRawDetailUrl(bikeId));
+  const html = await fetchHtml(buildDetailUrl(bikeId));
   return parseDetailPage(html, bikeId, state);
 }
 
@@ -151,109 +144,46 @@ async function fetchCategory(listUrl, state) {
   return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
 }
 
-async function getAllFietsen(forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cache.all && now - cache.fetchedAt < CACHE_MS) {
-    return cache;
-  }
+async function getFietsen(forceRefresh = false) {
+  const freshEnough = fietsenCache.data && (Date.now() - fietsenCache.timestamp < CACHE_TTL_MS);
+  if (!forceRefresh && freshEnough) return fietsenCache.data;
 
   const [used, fresh] = await Promise.all([
     fetchCategory(USED_URL, 'used'),
     fetchCategory(NEW_URL, 'new')
   ]);
 
-  cache = {
-    used,
-    fresh,
-    all: [...used, ...fresh],
-    fetchedAt: now
+  const all = [...used, ...fresh];
+  fietsenCache = {
+    timestamp: Date.now(),
+    data: all
   };
-
-  return cache;
+  return all;
 }
 
-function renderDetailPage(fiets) {
-  const title = escapeHtml(fiets.title);
-  const price = escapeHtml(fiets.price);
-  const stateLabel = escapeHtml(fiets.stateLabel);
-  const image = escapeHtml(fiets.image);
-  const detailUrl = escapeHtml(fiets.detailUrl);
-  const rows = [
-    ['Soort', fiets.soort],
-    ['Kleur', fiets.kleur],
-    ['Maat', fiets.maat],
-    ['Wielmaat', fiets.wielmaat],
-    ['Modeljaar', fiets.modeljaar],
-    ['Bijzonderheden', fiets.bijzonderheden],
-    ['Art. nummer', fiets.artikelnummer],
-    ['Garantie', fiets.garantie],
-    ['Status', fiets.status]
-  ].filter(([, v]) => v);
-
-  return `<!doctype html>
-<html lang="nl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title} | Bus vol Bikes</title>
-  <style>
-    :root { --bg:#f7f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; --brand:#0f766e; --dark:#0b1739; }
-    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{max-width:1120px;margin:0 auto;padding:20px 16px 96px}
-    .back{display:inline-flex;align-items:center;gap:8px;margin:8px 0 18px;color:var(--dark);text-decoration:none;font-weight:700}
-    .grid{display:grid;grid-template-columns:1.05fr .95fr;gap:28px}
-    .imageCard,.infoCard{background:var(--card);border:1px solid var(--line);border-radius:22px;box-shadow:0 10px 30px rgba(15,23,42,.05)}
-    .imageCard{padding:16px}.imageBox{background:#f2f5f8;border-radius:16px;min-height:340px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-    .imageBox img{width:100%;max-height:560px;object-fit:contain;display:block}
-    .infoCard{padding:24px}.badge{display:inline-block;padding:7px 12px;border-radius:999px;background:#e8f5f1;color:#21825f;font-weight:800;font-size:13px}
-    h1{font-size:clamp(28px,4vw,42px);line-height:1.1;margin:14px 0 10px}.price{font-size:clamp(34px,5vw,52px);font-weight:900;color:var(--brand);margin:18px 0 20px}
-    .table{display:grid;gap:10px;margin:18px 0}.row{display:grid;grid-template-columns:140px 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
-    .row:first-child{border-top:0}.label{color:var(--muted);font-weight:700}.value{font-weight:600}
-    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 18px;border-radius:14px;text-decoration:none;font-weight:800}
-    .btn-primary{background:var(--dark);color:#fff}.btn-secondary{background:#eef2f7;color:var(--dark)}
-    .note{margin-top:12px;color:var(--muted);font-size:14px}
-    @media (max-width: 780px){ .grid{grid-template-columns:1fr;gap:18px}.wrap{padding-bottom:116px}.imageBox{min-height:220px}.row{grid-template-columns:1fr}.actions{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(247,248,251,0),var(--bg) 24%,var(--bg));padding-top:14px} .actions .btn{flex:1} }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <a class="back" href="/voorraad">← Terug naar voorraad</a>
-    <div class="grid">
-      <section class="imageCard">
-        <div class="imageBox"><img src="${image}" alt="${title}"></div>
-      </section>
-      <section class="infoCard">
-        <span class="badge">${stateLabel}</span>
-        <h1>${title}</h1>
-        <div class="price">${price}</div>
-        <div class="table">
-          ${rows.map(([label, value]) => `<div class="row"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`).join('')}
-        </div>
-        <div class="actions">
-          <a class="btn btn-primary" href="${detailUrl}" target="_blank" rel="noopener noreferrer">Open originele pagina</a>
-          <a class="btn btn-secondary" href="/voorraad">Terug</a>
-        </div>
-        <div class="note">Deze pagina is mobielvriendelijk gemaakt op basis van de Fietsenwijk detailinformatie.</div>
-      </section>
-    </div>
-  </div>
-</body>
-</html>`;
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
 
 app.get('/api/fietsen', async (req, res) => {
   try {
-    const data = await getAllFietsen(req.query.refresh === '1');
+    const forceRefresh = req.query.refresh === '1';
+    const fietsen = await getFietsen(forceRefresh);
+
     res.json({
       success: true,
-      count: data.all.length,
-      fietsen: data.all,
-      laatsteUpdate: new Date(data.fetchedAt).toISOString(),
-      source: { used: USED_URL, new: NEW_URL }
+      count: fietsen.length,
+      fietsen,
+      laatsteUpdate: new Date().toISOString(),
+      source: {
+        used: USED_URL,
+        new: NEW_URL
+      }
     });
   } catch (error) {
     console.error('Fietsen fout:', error.message);
@@ -263,62 +193,169 @@ app.get('/api/fietsen', async (req, res) => {
       fietsen: [],
       error: error.message,
       laatsteUpdate: new Date().toISOString(),
-      source: { used: USED_URL, new: NEW_URL }
+      source: {
+        used: USED_URL,
+        new: NEW_URL
+      }
     });
   }
 });
 
 app.get('/api/fietsen.xml', async (req, res) => {
   try {
-    const data = await getAllFietsen(req.query.refresh === '1');
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<fietsen laatsteUpdate="${escapeXml(new Date(data.fetchedAt).toISOString())}">\n${data.all.map((f) => `  <fiets>\n    <id>${escapeXml(f.id)}</id>\n    <titel>${escapeXml(f.title)}</titel>\n    <status>${escapeXml(f.state)}</status>\n    <statusLabel>${escapeXml(f.stateLabel)}</statusLabel>\n    <prijs>${escapeXml(f.price)}</prijs>\n    <image>${escapeXml(f.image)}</image>\n    <url>${escapeXml(f.url)}</url>\n    <detailUrl>${escapeXml(f.detailUrl)}</detailUrl>\n    <soort>${escapeXml(f.soort)}</soort>\n    <kleur>${escapeXml(f.kleur)}</kleur>\n    <maat>${escapeXml(f.maat)}</maat>\n    <wielmaat>${escapeXml(f.wielmaat)}</wielmaat>\n    <modeljaar>${escapeXml(f.modeljaar)}</modeljaar>\n  </fiets>`).join('\n')}\n</fietsen>`;
+    const forceRefresh = req.query.refresh === '1';
+    const fietsen = await getFietsen(forceRefresh);
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<fietsen>
+${fietsen.map(f => `  <fiets>
+    <id>${escapeXml(f.id)}</id>
+    <titel>${escapeXml(f.title)}</titel>
+    <status>${escapeXml(f.state)}</status>
+    <statusLabel>${escapeXml(f.stateLabel)}</statusLabel>
+    <prijs>${escapeXml(f.price)}</prijs>
+    <afbeelding>${escapeXml(f.image)}</afbeelding>
+    <detailUrl>${escapeXml(f.detailUrl)}</detailUrl>
+    <url>${escapeXml(f.url)}</url>
+    <soort>${escapeXml(f.soort)}</soort>
+    <kleur>${escapeXml(f.kleur)}</kleur>
+    <maat>${escapeXml(f.maat)}</maat>
+    <wielmaat>${escapeXml(f.wielmaat)}</wielmaat>
+    <modeljaar>${escapeXml(f.modeljaar)}</modeljaar>
+    <garantie>${escapeXml(f.garantie)}</garantie>
+    <artNummer>${escapeXml(f.artNummer)}</artNummer>
+    <specs>${escapeXml((f.specs || []).join(' | '))}</specs>
+  </fiets>`).join('\n')}
+</fietsen>`;
+
     res.type('application/xml').send(xml);
   } catch (error) {
     res.status(500).type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><error>${escapeXml(error.message)}</error>`);
   }
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    cached: Boolean(fietsenCache.data),
+    cacheAgeMs: fietsenCache.data ? Date.now() - fietsenCache.timestamp : null
+  });
+});
+
 app.get('/fiets/:id', async (req, res) => {
+  const bikeId = req.params.id;
   try {
-    const bikeId = req.params.id;
-    const html = await fetchHtml(buildRawDetailUrl(bikeId));
-    const fiets = parseDetailPage(html, bikeId, 'used');
-    res.send(renderDetailPage(fiets));
+    const html = await fetchHtml(buildDetailUrl(bikeId));
+    const parsed = parseDetailPage(html, bikeId, 'used');
+    const title = parsed.title;
+    const specsHtml = [
+      ['Soort', parsed.soort],
+      ['Kleur', parsed.kleur],
+      ['Maat', parsed.maat],
+      ['Wielmaat', parsed.wielmaat],
+      ['Modeljaar', parsed.modeljaar],
+      ['Garantie', parsed.garantie],
+      ['Art. nummer', parsed.artNummer],
+      ['Status', parsed.status]
+    ].filter(([,v]) => v).map(([k,v]) => `<div class="spec-row"><span>${k}</span><strong>${v}</strong></div>`).join('');
+
+    res.send(`<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${title} | Bus vol Bikes</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="detail-body">
+  <main class="detail-page">
+    <a class="back-link" href="/voorraad">← Terug naar voorraad</a>
+    <div class="detail-grid">
+      <section class="detail-visual card">
+        <div class="detail-image">
+          <img src="${parsed.image}" alt="${title}" loading="eager">
+        </div>
+      </section>
+      <section class="detail-card card">
+        <span class="badge">${parsed.stateLabel}</span>
+        <h1 class="detail-title">${title}</h1>
+        <div class="detail-price">${parsed.price}</div>
+        <div class="spec-list">${specsHtml || '<p>Geen extra gegevens gevonden.</p>'}</div>
+        <div class="detail-actions">
+          <a class="btn btn-primary" href="${parsed.detailUrl}" target="_blank" rel="noopener noreferrer">Open originele pagina</a>
+          <a class="btn btn-secondary" href="/voorraad">Terug</a>
+        </div>
+        <p class="detail-note">Deze pagina is mobielvriendelijk gemaakt op basis van de Fietsenwijk detailinformatie.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>`);
   } catch (error) {
-    res.status(500).send(`<!doctype html><html><body style="font-family:Arial;padding:24px">Kon fiets niet laden: ${escapeHtml(error.message)}</body></html>`);
+    res.status(500).send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"><title>Fiets niet gevonden</title></head><body class="detail-body"><main class="detail-page"><a class="back-link" href="/voorraad">← Terug naar voorraad</a><section class="card detail-card"><h1 class="detail-title">Fiets niet gevonden</h1><p>De fietsinformatie kon niet worden geladen.</p></section></main></body></html>`);
   }
 });
 
 app.get('/embed.js', (req, res) => {
   res.type('application/javascript').send(`
-(function(){
+(function() {
   var API_BASE = window.BVB_API_BASE || window.location.origin;
-  function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
-  function render(container,fietsen){
-    if(!fietsen.length){container.innerHTML='Geen fietsen gevonden';return;}
-    container.innerHTML='<style>.bvb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}.bvb-card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden;box-shadow:0 8px 28px rgba(15,23,42,.05)}.bvb-img{height:230px;background:#f5f7fa;display:flex;align-items:center;justify-content:center}.bvb-img img{width:100%;height:100%;object-fit:contain}.bvb-body{padding:18px}.bvb-badge{display:inline-block;margin-bottom:10px;padding:6px 11px;border-radius:999px;background:#e8f5f1;color:#21825f;font-size:12px;font-weight:800}.bvb-title{font:800 18px/1.25 system-ui;margin:0 0 10px;color:#0f172a}.bvb-specs{color:#64748b;font:600 14px/1.4 system-ui;min-height:20px}.bvb-bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:18px}.bvb-price{font:900 20px/1.1 system-ui;color:#0f766e}.bvb-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:14px;background:#0b1739;color:#fff;text-decoration:none;font:800 14px system-ui}@media(max-width:640px){.bvb-img{height:190px}.bvb-bottom{flex-direction:column;align-items:stretch}.bvb-btn{text-align:center}}</style><div class="bvb-grid">'+fietsen.map(function(f){return '<article class="bvb-card"><div class="bvb-img"><img src="'+esc(f.image)+'" alt="'+esc(f.title)+'"></div><div class="bvb-body"><div class="bvb-badge">'+esc(f.stateLabel)+'</div><h3 class="bvb-title">'+esc(f.title)+'</h3><div class="bvb-specs">'+esc([f.maat,f.kleur,f.modeljaar].filter(Boolean).join(' • '))+'</div><div class="bvb-bottom"><div class="bvb-price">'+esc(f.price)+'</div><a class="bvb-btn" href="'+esc(API_BASE + f.url)+'">Bekijken</a></div></div></article>';}).join('')+'</div>';
+
+  function esc(v) {
+    return String(v || '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
   }
-  function initOne(container){
-    var type = container.getAttribute('data-type') || 'all';
-    container.innerHTML = 'Fietsen laden...';
-    fetch(API_BASE + '/api/fietsen').then(function(r){return r.json();}).then(function(data){
-      var fietsen = Array.isArray(data.fietsen) ? data.fietsen : [];
-      if(type !== 'all'){fietsen = fietsen.filter(function(f){return f.state === type;});}
-      render(container,fietsen);
-    }).catch(function(){container.innerHTML='Fietsen konden niet worden geladen';});
+
+  function render(container, fietsen, type) {
+    if (type && type !== 'all') {
+      fietsen = fietsen.filter(function(f) { return f.state === type; });
+    }
+
+    if (!fietsen.length) {
+      container.innerHTML = '<div style="padding:20px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;">Geen fietsen gevonden.</div>';
+      return;
+    }
+
+    container.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">' +
+      fietsen.map(function(f) {
+        return '<article style="background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.06);">' +
+          '<div style="height:240px;background:#f6f7f8;display:flex;align-items:center;justify-content:center;padding:12px;">' +
+            '<img src="' + esc(f.image) + '" alt="' + esc(f.title) + '" style="max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;">' +
+          '</div>' +
+          '<div style="padding:18px;">' +
+            '<div style="display:inline-flex;padding:8px 14px;border-radius:999px;background:#e7f4ee;color:#1f7a5c;font-weight:700;font-size:14px;margin-bottom:12px;">' + esc(f.stateLabel) + '</div>' +
+            '<h3 style="margin:0 0 8px;font-size:18px;line-height:1.3;color:#0f172a;">' + esc(f.title) + '</h3>' +
+            '<div style="color:#64748b;margin-bottom:14px;">' + esc((f.specs || []).slice(0,2).join(' • ')) + '</div>' +
+            '<div style="font-size:34px;font-weight:800;line-height:1;color:#0f8a7d;margin-bottom:16px;">' + esc(f.price) + '</div>' +
+            '<a href="' + esc(API_BASE + f.url) + '" style="display:inline-block;background:#08194d;color:#fff;text-decoration:none;padding:12px 16px;border-radius:14px;font-weight:700;">Bekijken</a>' +
+          '</div>' +
+        '</article>';
+      }).join('') +
+    '</div>';
   }
-  var byId=document.getElementById('bvb-voorraad'); if(byId) initOne(byId);
-  var list=document.querySelectorAll('.busvolbikes-voorraad'); list.forEach(initOne);
-})();`);
+
+  function mount(el) {
+    var type = el.getAttribute('data-type') || 'all';
+    el.innerHTML = 'Fietsen laden...';
+    fetch(API_BASE + '/api/fietsen')
+      .then(function(r){ return r.json(); })
+      .then(function(data){ render(el, Array.isArray(data.fietsen) ? data.fietsen : [], type); })
+      .catch(function(){ el.innerHTML = 'Fietsen konden niet worden geladen'; });
+  }
+
+  var byId = document.getElementById('bvb-voorraad');
+  if (byId) mount(byId);
+  document.querySelectorAll('.busvolbikes-voorraad').forEach(mount);
+})();
+  `);
 });
 
-app.get('/voorraad', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'voorraad.html'));
-});
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/voorraad', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voorraad.html')));
 
 app.listen(PORT, () => {
   console.log('Bus vol Bikes server running on port ' + PORT);

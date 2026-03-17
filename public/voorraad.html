@@ -2,27 +2,24 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Voorraad | Bus vol Bikes</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="page-head">
+  <main class="page">
+    <section class="toolbar card">
       <div>
-        <span class="eyebrow">Fietsenoverzicht</span>
-        <h1>Actuele voorraad</h1>
-        <p>Nieuwe en gebruikte fietsen uit de Fietsenwijk-detailpagina's.</p>
+        <span class="badge">Voorraad</span>
+        <h1>Onze actuele fietsen</h1>
       </div>
-      <div class="toolbar">
-        <button class="filter active" data-filter="all">Alles</button>
-        <button class="filter" data-filter="used">Gebruikt</button>
-        <button class="filter" data-filter="new">Nieuw</button>
+      <div class="filters">
+        <button class="filter-btn active" data-type="all">Alles</button>
+        <button class="filter-btn" data-type="used">Gebruikt</button>
+        <button class="filter-btn" data-type="new">Nieuw</button>
       </div>
-    </header>
-
-    <div class="meta" id="meta">Laden...</div>
-    <section class="grid" id="grid"></section>
+    </section>
+    <section id="grid" class="grid"></section>
   </main>
   <script src="/voorraad.js"></script>
 </body>
