@@ -109,6 +109,23 @@ function getCellValue($, label) {
   return value;
 }
 
+function getRowValue($, label) {
+  let value = '';
+
+  $('tr').each((_, tr) => {
+    const cells = $(tr).find('th, td');
+    if (cells.length < 2) return;
+
+    const first = cleanText($(cells[0]).text()).replace(/:$/, '').toLowerCase();
+    if (first === label.toLowerCase()) {
+      const lastCellText = cleanText($(cells[cells.length - 1]).text());
+      if (lastCellText) value = lastCellText;
+    }
+  });
+
+  return value;
+}
+
 function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   const $ = cheerio.load(html);
 
@@ -132,15 +149,23 @@ function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   const status = getCellValue($, 'Status');
 
   const bodyText = cleanText($('body').text());
-  const prijsCell = getCellValue($, 'Prijs');
-  let prijsMatch = prijsCell.match(/€\s?[\d\.\,]+(?:,-)?/);
 
-  if (!prijsMatch) {
-    prijsMatch = bodyText.match(/Prijs\s*:\s*€\s?[\d\.\,]+(?:,-)?/i);
-  }
+  const prijsCandidates = [
+    getRowValue($, 'Prijs'),
+    getCellValue($, 'Prijs'),
+    cleanText($('strong, b').filter((_, el) => /€/.test($(el).text())).first().text()),
+    cleanText($('*').filter((_, el) => /Prijs\s*:/.test($(el).text())).first().text()),
+    bodyText
+  ].filter(Boolean);
 
-  if (!prijsMatch) {
-    prijsMatch = bodyText.match(/€\s?[\d\.\,]+(?:,-)?/);
+  let prijs = 'Prijs op aanvraag';
+
+  for (const candidate of prijsCandidates) {
+    const match = String(candidate).match(/€\s?[\d\.\,]+(?:,-)?/);
+    if (match) {
+      prijs = cleanText(match[0]);
+      break;
+    }
   }
 
   return {
@@ -148,9 +173,7 @@ function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
     title,
     state,
     stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price: prijsMatch
-      ? cleanText(String(prijsMatch[0]).replace(/Prijs\s*:\s*/i, ''))
-      : 'Prijs op aanvraag',
+    price: prijs,
     image: `/image/${bikeId}`,
     rawImage: buildRawImageUrl(bikeId),
     url: `/fiets/${bikeId}`,

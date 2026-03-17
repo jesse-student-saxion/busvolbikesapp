@@ -16,3 +16,7 @@ WordPress:
 window.BVB_API_BASE = 'https://api.busvolbikes.nl';
 </script>
 <script src="https://api.busvolbikes.nl/embed.js"></script>
+
+
+v15:
+- extra prijsdetectie via th/td rij, bold tekst en body fallback
