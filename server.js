@@ -19,9 +19,7 @@ let fietsenCache = { timestamp: 0, data: null };
 
 function decodeHtmlBuffer(buf) {
   let html = Buffer.from(buf).toString('utf8');
-  if (html.includes('�')) {
-    html = Buffer.from(buf).toString('latin1');
-  }
+  if (html.includes('�')) html = Buffer.from(buf).toString('latin1');
   return html;
 }
 
@@ -44,6 +42,7 @@ async function fetchHtml(url) {
 
 function cleanText(value) {
   return String(value || '')
+    .replace(/&nbsp;/gi, ' ')
     .replace(/\u00a0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -65,78 +64,73 @@ function buildRawImageUrl(bikeId) {
   return `${BASE}/fietsen/detail/images/?b=${bikeId}&css=/css/default.css`;
 }
 
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+async function fetchListBikeIds(listUrl) {
+  const html = await fetchHtml(listUrl);
+  const $ = cheerio.load(html);
+  const ids = new Set();
+
+  $('a[href*="/fietsen/detail/"]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href) return;
+    const fullUrl = new URL(href, BASE).href;
+    const bikeId = getBikeId(fullUrl);
+    if (bikeId) ids.add(bikeId);
+  });
+
+  return [...ids];
 }
 
-function findField(html, label) {
-  const escaped = escapeRegex(label);
-  const patterns = [
-    new RegExp(`${escaped}:\\s*<\\/[^>]+>\\s*([^<\\n\\r]+)`, 'i'),
-    new RegExp(`${escaped}:\\s*([^<\\n\\r]+)`, 'i')
-  ];
+function getCellValue($, label) {
+  let value = '';
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      return cleanText(match[1].replace(/<[^>]+>/g, ' '));
+  $('tr').each((_, tr) => {
+    const tds = $(tr).find('td');
+    if (tds.length < 2) return;
+
+    const left = cleanText($(tds[0]).text()).replace(/:$/, '').toLowerCase();
+    if (left === label.toLowerCase()) {
+      value = cleanText($(tds[1]).text())
+        .replace(/^&nbsp;$/i, '')
+        .replace(/\u00a0/g, '')
+        .trim();
     }
-  }
-  return '';
-}
+  });
 
-function findTitle(html) {
-  const patterns = [
-    /<h1[^>]*>\s*([^<]+?)\s*<\/h1>/i,
-    /<h2[^>]*>\s*([^<]+?)\s*<\/h2>/i,
-    /<title[^>]*>\s*([^<]+?)\s*<\/title>/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      return cleanText(match[1].replace(/\s*\|\s*.*$/, ''));
-    }
-  }
-  return 'Onbekende fiets';
-}
-
-function findPrice(html) {
-  const patterns = [
-    /Prijs:\s*<\/[^>]+>\s*(€\s?[\d\.\,]+(?:,-)?)/i,
-    /Prijs:\s*(€\s?[\d\.\,]+(?:,-)?)/i,
-    /(€\s?[\d\.\,]+(?:,-)?)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      return cleanText(match[1]);
-    }
-  }
-  return 'Prijs op aanvraag';
+  return value;
 }
 
 function parseDetailPage(html, bikeId, state) {
-  const title = findTitle(html);
-  const soort = findField(html, 'Soort');
-  const kleur = findField(html, 'Kleur');
-  const maat = findField(html, 'Maat');
-  const wielmaat = findField(html, 'Wielmaat');
-  const gewicht = findField(html, 'Gewicht');
-  const modeljaar = findField(html, 'Modeljaar');
-  const bijzonderheden = findField(html, 'Bijzonderheden');
-  const artNummer = findField(html, 'Art. nummer');
-  const garantie = findField(html, 'Garantie');
-  const status = findField(html, 'Status');
+  const $ = cheerio.load(html);
+
+  const title =
+    cleanText($('h1').first().text()) ||
+    cleanText($('h2').first().text()) ||
+    'Onbekende fiets';
+
+  const pageText = cleanText($('body').text());
+
+  const soort = getCellValue($, 'Soort');
+  const kleur = getCellValue($, 'Kleur');
+  const maat = getCellValue($, 'Maat');
+  const wielmaat = getCellValue($, 'Wielmaat');
+  const gewicht = getCellValue($, 'Gewicht');
+  const modeljaar = getCellValue($, 'Modeljaar');
+  const bijzonderheden = getCellValue($, 'Bijzonderheden');
+  const artNummer = getCellValue($, 'Art. nummer');
+  const garantie = getCellValue($, 'Garantie');
+  const status = getCellValue($, 'Status');
+
+  const priceMatch =
+    pageText.match(/Prijs\s*:\s*€\s?[\d\.\,]+(?:,-)?/i) ||
+    pageText.match(/€\s?[\d\.\,]+(?:,-)?/);
 
   return {
     id: bikeId,
     title,
     state,
     stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price: findPrice(html),
-    image: `/image/${bikeId}`,
+    price: priceMatch ? cleanText(priceMatch[0].replace(/Prijs\s*:\s*/i, '')) : 'Prijs op aanvraag',
+    image: buildRawImageUrl(bikeId),
     rawImage: buildRawImageUrl(bikeId),
     url: `/fiets/${bikeId}`,
     detailUrl: buildDetailUrl(bikeId),
@@ -158,22 +152,6 @@ function parseDetailPage(html, bikeId, state) {
       modeljaar && `Modeljaar: ${modeljaar}`
     ].filter(Boolean)
   };
-}
-
-async function fetchListBikeIds(listUrl) {
-  const html = await fetchHtml(listUrl);
-  const $ = cheerio.load(html);
-  const ids = new Set();
-
-  $('a[href*="/fietsen/detail/"]').each((_, el) => {
-    const href = $(el).attr('href');
-    if (!href) return;
-    const fullUrl = new URL(href, BASE).href;
-    const bikeId = getBikeId(fullUrl);
-    if (bikeId) ids.add(bikeId);
-  });
-
-  return [...ids];
 }
 
 async function fetchBikeDetails(bikeId, state) {
@@ -209,27 +187,6 @@ function escapeXml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
-
-app.get('/image/:id', async (req, res) => {
-  try {
-    const bikeId = req.params.id;
-    const upstream = await fetchWithHeaders(buildRawImageUrl(bikeId), {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
-        'Referer': buildDetailUrl(bikeId),
-        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
-      }
-    });
-
-    const contentType = upstream.headers['content-type'] || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(upstream.data));
-  } catch (error) {
-    console.error('Image proxy fout:', error.message);
-    res.status(404).send('Image not found');
-  }
-});
 
 app.get('/api/fietsen', async (req, res) => {
   try {
@@ -355,7 +312,7 @@ app.get('/embed.js', (req, res) => {
     if(!items.length){el.innerHTML='<div style="padding:20px;border:1px solid #e5e7eb;border-radius:20px;background:#fff">Geen fietsen gevonden.</div>';return;}
     el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;">' + items.map(function(f){
       return '<article style="background:#fff;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,.07)">' +
-      '<div style="height:230px;background:#f6f7f8;padding:14px;display:flex;align-items:center;justify-content:center"><img src="' + esc(API_BASE + f.image) + '" alt="' + esc(f.title) + '" style="width:100%;height:100%;object-fit:contain"></div>' +
+      '<div style="height:230px;background:#f6f7f8;padding:14px;display:flex;align-items:center;justify-content:center"><img src="' + esc(f.image) + '" alt="' + esc(f.title) + '" style="width:100%;height:100%;object-fit:contain"></div>' +
       '<div style="padding:18px"><span style="display:inline-flex;padding:9px 14px;border-radius:999px;background:#e7f4ee;color:#1f7a5c;font-weight:800;font-size:14px;margin-bottom:12px">' + esc(f.stateLabel) + '</span>' +
       '<h3 style="margin:0 0 8px;font-size:19px;line-height:1.3;color:#0f172a">' + esc(f.title) + '</h3>' +
       '<div style="color:#64748b;min-height:42px;margin-bottom:14px">' + esc((f.specs||[]).slice(0,2).join(' • ')) + '</div>' +

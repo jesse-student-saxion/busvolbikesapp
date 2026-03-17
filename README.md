@@ -7,7 +7,6 @@ Routes:
 - /api/fietsen.xml
 - /api/health
 - /fiets/:id
-- /image/:id
 - /embed.js
 
 WordPress:
