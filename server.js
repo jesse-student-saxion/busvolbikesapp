@@ -130,15 +130,27 @@ function parseDetailPage(html, bikeId, state, fallbackTitle = '') {
   const artNummer = getCellValue($, 'Art. nummer');
   const garantie = getCellValue($, 'Garantie');
   const status = getCellValue($, 'Status');
+
+  const bodyText = cleanText($('body').text());
   const prijsCell = getCellValue($, 'Prijs');
-  const prijsMatch = prijsCell.match(/€\s?[\d\.\,]+(?:,-)?/);
+  let prijsMatch = prijsCell.match(/€\s?[\d\.\,]+(?:,-)?/);
+
+  if (!prijsMatch) {
+    prijsMatch = bodyText.match(/Prijs\s*:\s*€\s?[\d\.\,]+(?:,-)?/i);
+  }
+
+  if (!prijsMatch) {
+    prijsMatch = bodyText.match(/€\s?[\d\.\,]+(?:,-)?/);
+  }
 
   return {
     id: bikeId,
     title,
     state,
     stateLabel: state === 'new' ? 'Nieuw' : 'Gebruikt',
-    price: prijsMatch ? cleanText(prijsMatch[0]) : 'Prijs op aanvraag',
+    price: prijsMatch
+      ? cleanText(String(prijsMatch[0]).replace(/Prijs\s*:\s*/i, ''))
+      : 'Prijs op aanvraag',
     image: `/image/${bikeId}`,
     rawImage: buildRawImageUrl(bikeId),
     url: `/fiets/${bikeId}`,
@@ -200,10 +212,31 @@ function escapeXml(value) {
 app.get('/image/:id', async (req, res) => {
   try {
     const bikeId = req.params.id;
-    const imageUrl = buildRawImageUrl(bikeId);
+    const wrapperUrl = buildRawImageUrl(bikeId);
     const detailUrl = buildDetailUrl(bikeId);
 
-    const upstream = await axios.get(imageUrl, {
+    const wrapperResp = await axios.get(wrapperUrl, {
+      timeout: 25000,
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BusVolBikes/1.0)',
+        'Referer': detailUrl,
+        'Accept': 'text/html,application/xhtml+xml,image/*,*/*'
+      }
+    });
+
+    const wrapperHtml = decodeHtmlBuffer(wrapperResp.data);
+    const $ = cheerio.load(wrapperHtml);
+
+    let imgSrc = $('img').first().attr('src') || '';
+    if (!imgSrc) {
+      res.status(404).send('Image not found');
+      return;
+    }
+
+    const finalImageUrl = new URL(imgSrc, wrapperUrl).href;
+
+    const imgResp = await axios.get(finalImageUrl, {
       timeout: 25000,
       responseType: 'arraybuffer',
       headers: {
@@ -213,10 +246,10 @@ app.get('/image/:id', async (req, res) => {
       }
     });
 
-    const contentType = upstream.headers['content-type'] || 'image/jpeg';
+    const contentType = imgResp.headers['content-type'] || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(upstream.data));
+    res.send(Buffer.from(imgResp.data));
   } catch (error) {
     console.error('Image proxy fout:', error.message);
     res.status(404).send('Image not found');
